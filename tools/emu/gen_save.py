@@ -34,7 +34,7 @@ def slot_y(sl): return 67 + 8 * (sl - 1)     # row BY = 8 + (sl-1), centre-ish
 o = boot()
 o += f"K{1 if side=='H' else 2}\nw60\nK1\nw60\n" + ("" if var == 'orig' else f"K{2 if ext else 1}\n") + drive_new()
 o += "w300\nKSpace\nw200\ns:before\nc:beforec\nm:es0:783A:1\nm:lv0:79D8:1\n"
-pos = (0, 0) if var == "orig" else (0x7F, 0x88)   # orig: pointer starts at the top left corner (measured)
+pos = (0, 0)   # the demo (w_demo.asm d_CTRL) sets MX=0 and the game inherits it (as in the original); COORD init #887F is overwritten
 for i, sl in enumerate(slots):
     o += move(*pos, *PANEL) + "m:co_p:77CA:2\nkSpace\nw40\n" + (f"c:menu{sl}\n")
     o += move(*PANEL, *MENU1) + f"m:co_m{sl}:77CA:2\nkSpace\nw40\nc:savemenu{sl}\n"

@@ -1,0 +1,22 @@
+# load the game, then watch the demo screen WITHOUT pressing keys (units must move)
+dEnter
+w300
+uEnter
+w400
+s:d0
+w25
+s:d1
+w25
+s:d2
+w50
+s:d3
+w100
+s:d4
+w200
+s:d5
+w400
+s:d6
+w600
+s:d7
+w800
+s:d8

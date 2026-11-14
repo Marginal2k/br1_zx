@@ -1,0 +1,13 @@
+boot
+dEnter
+w300
+uEnter
+w2500
+KSpace
+w150
+c:m0
+K4
+w100
+c:trd1
+w300
+c:trd2

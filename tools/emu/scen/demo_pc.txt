@@ -1,0 +1,13 @@
+dEnter
+w300
+uEnter
+w400
+r:a
+w7
+r:b
+w13
+r:c
+w50
+r:d
+w200
+r:e

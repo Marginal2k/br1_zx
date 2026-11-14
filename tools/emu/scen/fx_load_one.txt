@@ -1,0 +1,10 @@
+dEnter
+w300
+uEnter
+w2500
+KSpace
+w150
+K3
+w60
+c:load1
+r:x

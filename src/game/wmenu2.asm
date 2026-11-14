@@ -551,12 +551,11 @@ M_M9 ;меню save
 	CALL	V_PUT2
 	LD	HL,#606
 	PUSH	HL
-	LD	BC,#C00+NSLOTS+4 ;высота окна = слотов + 4
-	PUSH	BC
+	LD	BC,(NSLOTS+4)*256+12 ;ATRBAR: B=высота (слотов+4), C=ширина 12
 	LD	E,#4
 	CALL	ATRBAR
-	POP	BC
 	POP	DE
+	LD	BC,12*256+NSLOTS+4 ;MU_BOX: B=ширина 12, C=высота (слотов+4)
 	CALL	MU_BOX
 	LD	B,NSLOTS
 	LD	DE,(NSLOTS+7)*256+8
