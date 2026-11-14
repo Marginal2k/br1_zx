@@ -1,0 +1,8 @@
+w320
+dEnter
+w117
+uEnter
+w406
+r:end
+chk:tab:BE00:257:BF
+chk:jp:BFBF:3:C35D77

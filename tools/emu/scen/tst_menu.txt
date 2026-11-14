@@ -1,0 +1,14 @@
+boot
+w200
+c:a_logo
+K2
+w2500
+c:b_demo
+KSpace
+w150
+c:c_menu
+K1
+w60
+K1
+w60
+c:d_setbox

@@ -1,0 +1,14 @@
+dEnter
+w300
+uEnter
+w400
+w300
+KSpace
+w60
+c:a1
+w200
+c:a2
+KSpace
+w100
+c:a3
+r:a3

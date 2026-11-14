@@ -1,0 +1,27 @@
+# extra set (1999), kung level 1: logo -> menu -> new game kung -> difficulty 1 -> set 2
+boot
+dEnter
+w300
+uEnter
+w2500
+KSpace
+w150
+c:m
+K2
+w60
+c:d
+K1
+w60
+c:e
+K1
+w100
+c:f
+Kb
+w200
+c:g
+w1500
+c:h
+w1500
+m:lev:79C0:12608
+c:B
+r:x

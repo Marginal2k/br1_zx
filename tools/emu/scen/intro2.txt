@@ -1,0 +1,15 @@
+w200
+K1
+w600
+c:i1
+kEnter
+w100
+c:i2
+kEnter
+w200
+c:i3
+r:x
+kSpace
+w200
+c:i4
+r:y

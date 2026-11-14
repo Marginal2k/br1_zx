@@ -1,0 +1,2 @@
+# keep every file byte-exact (level texts, scripts and binaries feed the build)
+* -text

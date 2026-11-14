@@ -1,0 +1,20 @@
+# extra set (1999), human level 1: logo -> menu -> new game human -> difficulty 1 -> set 2
+boot
+dEnter
+w300
+uEnter
+w2500
+KSpace
+w150
+c:m
+K1
+w60
+c:d
+K1
+w60
+c:e
+K2
+rt:6D87:3000
+m:lev:79C0:12608
+c:B
+r:x

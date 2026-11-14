@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Редактор уровней Black Raven</title>
+<link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+<header id="top">
+  <span class="brand">Чёрный Ворон · редактор уровней</span>
+  <div class="grp">
+    <button id="bNew" title="Новый уровень: сценарий и параметры берутся из выбранного уровня">Новый…</button>
+    <label class="btn" title="Блок уровня 12608 байт (reference/cs1999/levels_ext/*.bin, build/two/levels/1NN.bin)">Открыть .bin<input type="file" id="fBin" accept=".bin" hidden></label>
+    <label class="btn" title="Каталог в формате assets_src/levels_ext/&lt;имя&gt;/ (script.asm, task.txt, map.csv, heroes.txt, screen.png)">Открыть каталог<input type="file" id="fDir" webkitdirectory hidden></label>
+    <label class="btn" title="Проект редактора (.json)">Открыть проект<input type="file" id="fPrj" accept=".json" hidden></label>
+  </div>
+  <div class="grp">
+    <button id="bSavePrj" title="Сохранить проект (.json): всё состояние уровня">Сохранить проект</button>
+    <button id="bExpBin" title="Блок 12608 байт">Экспорт .bin</button>
+    <button id="bExpDir" title="Каталог для assets_src/levels_ext/ (или .zip, если браузер не умеет писать в каталог)">Экспорт каталога</button>
+  </div>
+  <div class="grp">
+    <button id="bUndo" title="Отменить (Ctrl+Z)">↶</button>
+    <button id="bRedo" title="Вернуть (Ctrl+Y)">↷</button>
+  </div>
+  <div class="grp">
+    <label>Имя <input id="lvName" size="12" spellcheck="false"></label>
+  </div>
+  <span id="dirty"></span>
+</header>
+
+<main>
+  <aside id="side">
+    <nav id="tabs">
+      <button data-tab="map" class="on">Карта</button>
+      <button data-tab="heroes">Герои</button>
+      <button data-tab="params">Параметры</button>
+      <button data-tab="task">Задание</button>
+      <button data-tab="script">Сценарий</button>
+      <button data-tab="screen">Экран</button>
+      <button data-tab="check">Проверка <span id="chkBadge"></span></button>
+    </nav>
+
+    <section id="tab-map" class="tab on">
+      <div class="tools">
+        <button data-tool="brush" class="on" title="Кисть (B): ЛКМ - рисовать, ПКМ - взять тайл с карты">Кисть</button>
+        <button data-tool="rect" title="Прямоугольник (R): протянуть ЛКМ">Прямоуг.</button>
+        <button data-tool="building" title="Здание (U): щелчок - поставить здание целиком (центр там, где курсор)">Здание</button>
+        <button data-tool="erase" title="Снести здание (E): щелчок по любой его части">Снести</button>
+        <button data-tool="hand" title="Рука (H) - двигать карту; ещё: средняя кнопка или пробел + ЛКМ">Рука</button>
+      </div>
+      <div class="opts">
+        <label><input type="checkbox" id="optGrid"> сетка</label>
+        <label><input type="checkbox" id="optHeroes" checked> герои</label>
+        <label><input type="checkbox" id="optPass"> проходимость</label>
+        <label><input type="checkbox" id="optIssues" checked> ошибки</label>
+        <label><input type="checkbox" id="optMono"> ч/б</label>
+      </div>
+      <div id="curTile" class="cur"></div>
+      <h3>Тайлы <small>(0 - граница, 1 - фон; 1..51 проходимы)</small></h3>
+      <div id="palTiles" class="pal"></div>
+      <h3>Здания <small>(ставятся целиком; 120..127 - «хвосты»)</small></h3>
+      <div id="palBuild" class="pal build"></div>
+    </section>
+
+    <section id="tab-heroes" class="tab">
+      <div class="row">
+        <label>Сторона новых
+          <select id="hSide"><option value="0">0 - свои</option><option value="1">1 - враги</option><option value="2">2 - пленники</option><option value="3">3 - пленники (у кунгов)</option></select>
+        </label>
+      </div>
+      <p class="hint">Режим героев включается выбором типа ниже. ЛКМ по пустой клетке - поставить, по герою - выбрать и тащить; Del или ПКМ - удалить.</p>
+      <div id="palHeroes" class="pal heroes"></div>
+      <div id="heroEdit" class="box"></div>
+      <div id="heroCount" class="hint"></div>
+      <div class="tblwrap"><table id="heroList"><thead><tr><th>#</th><th>стор.</th><th>тип</th><th>x</th><th>y</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section id="tab-params" class="tab">
+      <form id="params" onsubmit="return false"></form>
+    </section>
+
+    <section id="tab-task" class="tab">
+      <p class="hint">Три строки по 20 знаков (вместе с признаками концов строк - не больше 63 байт). Латинские и кириллические буквы одинакового вида - разные знаки шрифта; знак, которого нет в шрифте, подсвечивается. <code>{N}</code> - знак шрифта по номеру.</p>
+      <div id="taskRows"></div>
+      <div id="taskTotal" class="hint"></div>
+      <canvas id="taskPreview" width="160" height="24"></canvas>
+      <h3>Знаки шрифта <small>(щелчок - вставить)</small></h3>
+      <div id="glyphs"></div>
+    </section>
+
+    <section id="tab-script" class="tab">
+      <div id="scriptInfo" class="box"></div>
+      <h3>Взять сценарий из другого уровня</h3>
+      <p class="hint">Код задания (#7A6B..#7DFF: условия победы, события) переписывается целиком. Править код в редакторе нельзя.</p>
+      <div class="row">
+        <select id="libSel"></select>
+      </div>
+      <label><input type="checkbox" id="libParams"> вместе с параметрами вооружения и ИИ врага (hTOWER..levTYP)</label>
+      <div class="row"><button id="bCopyScript">Взять сценарий</button> <button id="bClean" title="Как tools/levasm.py clean: pcINI = RET, _cLOOP обычный">Убрать защиту TST</button></div>
+      <h3>Код задания (script.asm, только чтение)</h3>
+      <pre id="asmView"></pre>
+    </section>
+
+    <section id="tab-screen" class="tab">
+      <canvas id="scrView" width="256" height="192"></canvas>
+      <p class="hint">Заставка уровня (.scr, 6912 байт). Заменить: .scr или PNG 256x192 (цвета приводятся к Спектруму: в ячейке 8x8 не больше двух цветов одной яркости).</p>
+      <label class="btn">Заменить экран…<input type="file" id="fScr" accept=".scr,.png" hidden></label>
+    </section>
+
+    <section id="tab-check" class="tab">
+      <p class="hint">Проверка идёт сама после каждой правки. Перед экспортом с ошибками редактор переспросит; предупреждения экспорту не мешают. Щелчок по строке - показать место на карте.</p>
+      <ul id="issues"></ul>
+    </section>
+  </aside>
+
+  <div id="view">
+    <canvas id="cv"></canvas>
+    <div id="zoomBox"><button id="zOut">−</button><span id="zVal"></span><button id="zIn">+</button><button id="zFit" title="Вся карта">⤢</button></div>
+  </div>
+</main>
+<footer id="status"></footer>
+
+<dialog id="dlg"><form method="dialog"><div id="dlgBody"></div><div class="row end"><button value="cancel">Отмена</button> <button id="dlgOk" value="ok">OK</button></div></form></dialog>
+
+<script src="data/brdata.js"></script>
+<script src="js/core.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

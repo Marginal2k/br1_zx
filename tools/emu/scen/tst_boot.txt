@@ -1,0 +1,14 @@
+boot
+w200
+c:t1_logo
+K1
+w600
+c:t1_intro_a
+w600
+c:t1_intro_b
+KSpace
+w300
+c:t1_after_skip
+w300
+c:t1_after_skip2
+r:t1

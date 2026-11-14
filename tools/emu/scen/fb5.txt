@@ -1,0 +1,12 @@
+dEnter
+w300
+uEnter
+w400
+w300
+r:before
+dSpace
+r:after
+w1
+r:after1
+w2
+r:after3

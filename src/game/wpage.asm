@@ -1,0 +1,203 @@
+;*L+
+	MMU 3,7	; page 7 at #C000 ;--------SCR,...-----
+	ORG	#C000
+	INCBIN "barkov/w_world.scr"
+;	 ORG #DB00
+	DEFB	0 ; (было CHK#6 #DB00)
+WBUTT
+	INCBIN "data/whumbutt.dat" ;0(*)
+;*B ..\DATA\wORCbutt.dat ;1
+WNAMES
+	INCBIN "data/wnames.dat"
+	INCLUDE "wmenu2.asm"
+
+
+	MMU 3,3	; page 3 at #C000 ;--------Кунги+эффекты-------
+	ORG	#C000
+	INCBIN "data/wsorc.dat"
+
+SOU0 ;удар меча
+	DEFW	27
+	DEFB	12,#FF
+	DEFW	25
+	DEFB	15,10
+	DEFW	15
+	DEFB	15,16
+	DEFW	15
+	DEFB	15,20
+	DEFW	14
+	DEFB	14,23
+	DEFW	14
+	DEFB	11,28
+	DEFW	14
+	DEFB	7,30
+	DEFB	#FF
+
+SOU1 ;удар топора, cкелета, стеногрыза, полоза
+	DEFW	1540
+	DEFB	13,1
+	DEFB	#FF
+
+SOU7 ;укус паука, скорпиона
+	DEFW	1340
+	DEFB	14,#FF
+	DEFB	#FF
+
+SOU5 ;колдовство
+	DEFW	40
+	DEFB	14,#FF
+	DEFW	80
+	DEFB	14,#FF
+	DEFW	50
+	DEFB	14,#FF
+	DEFW	100
+	DEFB	13,#FF
+	DEFW	56
+	DEFB	14,#FF
+	DEFW	110
+	DEFB	14,#FF
+	DEFW	60
+	DEFB	14,#FF
+	DEFW	120
+	DEFB	13,#FF
+	DEFW	70
+	DEFB	14,#FF
+	DEFW	140
+	DEFB	14,#FF
+	DEFW	80
+	DEFB	14,#FF
+	DEFW	150
+	DEFB	13,#FF
+	DEFW	300
+	DEFB	11,#FF
+	DEFB	#FF
+
+SOU6 ;волш/свящ стреляют
+	DEFW	540
+	DEFB	11,4
+	DEFW	354
+	DEFB	13,4
+	DEFW	568
+	DEFB	10,#FF
+	DEFB	#FF
+
+SOU2 ;взрыв
+	DEFW	1000
+	DEFB	10,27
+	DEFW	1200
+	DEFB	14,24
+	DEFW	1450
+	DEFB	15,18
+	DEFW	1650
+	DEFB	15,15
+	DEFW	1700
+	DEFB	15,11
+	DEFW	1800
+	DEFB	15,16
+	DEFW	1950
+	DEFB	15,20
+	DEFW	2050
+	DEFB	15,26
+	DEFW	2100
+	DEFB	15,22
+	DEFW	2200
+	DEFB	15,21
+	DEFW	2250
+	DEFB	15,29
+;
+	DEFW	2300
+	DEFB	15,23
+	DEFW	2350
+	DEFB	15,22
+	DEFW	2400
+	DEFB	15,17
+	DEFW	2450
+	DEFB	15,14
+	DEFW	2500
+	DEFB	15,10
+	DEFW	2550
+	DEFB	15,06
+	DEFW	2600
+	DEFB	15,07
+	DEFW	2650
+	DEFB	14,12
+	DEFW	2700
+	DEFB	14,18
+	DEFW	2750
+	DEFB	14,22
+	DEFW	2800
+	DEFB	14,27
+;
+SOU8	DEFW	2850 ;малый взр
+	DEFB	13,31
+	DEFW	2900
+	DEFB	13,30
+	DEFW	2950
+	DEFB	13,27
+	DEFW	3100
+	DEFB	12,26
+	DEFW	3200
+	DEFB	12,22
+	DEFW	3300
+	DEFB	12,17
+	DEFW	3400
+	DEFB	11,12
+	DEFW	3500
+	DEFB	11,07
+	DEFW	3600
+	DEFB	10,09
+	DEFW	3750
+	DEFB	10,16
+	DEFW	3900
+	DEFB	08,21
+	DEFB	#FF
+
+
+	MMU 3,4	; page 4 at #C000 ;--------Люди-------
+	ORG	#C000
+	INCBIN "data/wshum.dat"
+;вспомогательн. подпрограмы
+	DEFB	0 ; (было CHK#8 #FF00)
+	INCLUDE "wmisc_4.asm"
+
+	MMU 3,6	; page 6 at #C000 ;---Магич.создания--
+	ORG	#C000
+	INCLUDE "wmap.asm" ;первый!
+	DEFS	#C400-$ ;c #C300 - invTAB
+WSCREA
+	INCBIN "data/wscreat1.dat"
+WMISC3	EQU	WSCREA+8608 ;доп.спр3Х3
+;вспомогательн. подпрограмы
+	INCLUDE "wmisc_6.asm"
+
+	MMU 3,1	; page 1 at #C000 ;---Cпрайты ландшафта--
+	ORG	#C000
+WMISC2 ;доп.спр2Х2
+	INCBIN "data/wmisc.dat"
+WMISC4	EQU	WMISC2+1792 ;доп.спр4Х4
+WMISC1	EQU	WMISC2+3328 ;доп.спр1Х1
+	INCLUDE "wmisc_1.asm" ;доп п/п
+;селект-рамки----
+fr2x2h	DEFW	#FFFF,#80FF,#80C0,#80C0,#80C0,#80C0,#80C0,#80C0
+	DEFW	#80C0,#80C0,#80C0,#80C0,#80C0,#80C0,#80FF,#FFFF
+	DEFW	#FFFF,#01FF,#0103,#0103,#0103,#0103,#0103,#0103
+	DEFW	#0103,#0103,#0103,#0103,#0103,#0103,#01FF,#FFFF
+fr3x3h	DEFW	#FFFF,#80FF,#80C0,#80C0,#80C0,#80C0,#80C0,#80C0
+	DEFW	#80C0,#80C0,#80C0,#80C0,#80C0,#80C0,#80C0,#80C0
+	DEFW	#80C0,#80C0,#80C0,#80C0,#80C0,#80C0,#80FF,#FFFF
+	DEFW	#FFFF,#00FF,0,0,0,0,0,0
+	DEFW	0,0,0,0,0,0,0,0
+	DEFW	0,0,0,0,0,0,#00FF,#FFFF
+	DEFW	#FFFF,#01FF,#0103,#0103,#0103,#0103,#0103,#0103
+	DEFW	#0103,#0103,#0103,#0103,#0103,#0103,#0103,#0103
+	DEFW	#0103,#0103,#0103,#0103,#0103,#0103,#01FF,#FFFF
+	DEFS	#D000-$	;(ASM80: DEFR, случайное заполнение; теперь нули)
+LAND ;ландшафт
+shadwA	EQU	(49*32)+LAND
+SHADOW	EQU	(383*32)+LAND
+	INCBIN "data/w1spr.dat" ;1(*)
+;*B ..\DATA\w2SPR.DAT ;2
+;*B ..\DATA\w3SPR.DAT ;3
+;*B ..\DATA\w4SPR.DAT ;4
+
+	MMU 3,0	; page 0 at #C000 ;-------------------

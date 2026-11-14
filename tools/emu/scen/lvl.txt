@@ -1,0 +1,26 @@
+# common prefix: logo -> real loader (Enter held at the logo = straight to the game) -> demo -> main menu -> cheat on (6275)
+dEnter
+w300
+uEnter
+w400
+w300
+KSpace
+w30
+K8
+w20
+K6
+K2
+K7
+K5
+w20
+c:t0
+h1:2:12
+c:t1
+h1:2:12
+c:t2
+h2:2:12
+c:t3
+h2:2:12
+c:t4
+h2:2:12
+c:t5

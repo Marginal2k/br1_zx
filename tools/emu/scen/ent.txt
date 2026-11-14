@@ -1,0 +1,7 @@
+dEnter
+w250
+uEnter
+w200
+c:b
+r:b
+m:t:BE00:4

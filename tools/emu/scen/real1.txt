@@ -1,0 +1,10 @@
+# real loader (no fastboot): hold Enter while the logo loads -> game loads straight (skips intro) -> demo -> menu; IM2 table/JP check
+dEnter
+w900
+uEnter
+w600
+c:menu
+ri:im2
+chk:tab:BE00:257:BF
+chk:jp:BFBF:3:C35D77
+r:state

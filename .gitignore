@@ -1,0 +1,9 @@
+# generated
+build/
+work/
+__pycache__/
+*.pyc
+
+# third-party originals: disk images, the author's ASM80 archive, other ports (not redistributed; see README)
+reference/
+archive/

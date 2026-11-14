@@ -1,0 +1,8 @@
+# real loader, intro path: logo -> (no Enter) intro menu -> K2 = game; B01 (intro) was loaded before bGAME
+w250
+c:logo
+K2
+w900
+c:after
+r:after
+ri:im2
