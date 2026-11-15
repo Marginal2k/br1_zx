@@ -1,0 +1,9 @@
+boot
+w200
+K1
+w300
+js:ay_i1:ay
+w1500
+js:ay_i2:ay
+w1500
+js:ay_i3:ay
