@@ -1,0 +1,40 @@
+# Публикация веб-редактора уровней (папка editor/) на GitHub Pages.
+# Включить один раз: Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
+# Дальше сайт обновляется сам после каждой отправки (push) в main, если менялась папка editor/.
+name: Deploy editor
+
+on:
+  push:
+    branches: [main]
+    paths: ['editor/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # на сайт идут только файлы страницы: инструменты и тесты редактора там не нужны
+      - name: Prepare site
+        run: |
+          mkdir -p _site
+          cp -r editor/index.html editor/css editor/js editor/data editor/img _site/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
