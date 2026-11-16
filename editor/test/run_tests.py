@@ -7,7 +7,9 @@
    каталоги assets_src/levels_ext/<имя>/ и блоки, которые из них собирает tools/levels.py.
 2. node editor/test/roundtrip.js - модель редактора (editor/js/core.js): блок -> уровень -> блок, проект JSON, экспорт в каталог и обратно,
    открытие каталогов assets_src, правки.
-3. python tools/levels.py import --src <экспорт редактора> --out <tmp>: каждый блок должен совпасть с исходным (и для правленых - с блоком JS).
+3. node editor/test/gen_test.js - генератор заготовок: детерминизм по зерну; 110 зёрен поля боя, крепости и подземелья - «Проверка» без ошибок,
+   связность, пары соседей тайлов только из статистики автора, ожидания сценария; экспорт .bin и каталога читается обратно.
+4. python tools/levels.py import --src <экспорт редактора> --out <tmp>: каждый блок должен совпасть с исходным (для правленых и заготовок - с блоком JS).
 Код возврата 0 - всё совпало. Ничего вне временного каталога не пишется.
 """
 import os
@@ -48,8 +50,28 @@ def main():
         if r.returncode:
             fails += 1
 
+        print('--- встроенные уровни игры (data/brdata.js samples): блок -> редактор -> блок')
+        js = ("global.window={};require(process.argv[1]+'/data/brdata.js');const C=require(process.argv[1]+'/js/core.js');"
+              "C.initGlyphs(window.BR_DATA.codeMain);C.initLibrary(window.BR_DATA.library);let bad=0;const S=window.BR_DATA.samples;"
+              "for(const s of S){const b=C.b64dec(s.block);if(!C.eq(C.levelToBlock(C.levelFromBlock(b,s.name)),b)){bad++;console.log('ОШИБКА',s.name);}}"
+              "console.log('уровней:',S.length,'расхождений:',bad);process.exit(bad||!S.length?1:0)")
+        r = subprocess.run(['node', '-e', js, ED])
+        if r.returncode:
+            fails += 1
+
+        print('--- перевод интерфейса (test/i18n_check.py)')
+        r = subprocess.run([sys.executable, '-X', 'utf8', os.path.join(ED, 'test', 'i18n_check.py')])
+        if r.returncode:
+            fails += 1
+
+        print('--- генератор заготовок (node editor/test/gen_test.js): детерминизм, 110 зёрен каждого типа, экспорт')
+        r = subprocess.run(['node', os.path.join(ED, 'test', 'gen_test.js'), work, '110'])
+        if r.returncode:
+            fails += 1
+
         print('--- tools/levels.py import для каталогов, записанных редактором')
-        for sub, ref in (('out', lambda n: inputs[n]), ('edit', lambda n: open(os.path.join(work, 'edit_js', n + '.bin'), 'rb').read())):
+        for sub, ref in (('out', lambda n: inputs[n]), ('edit', lambda n: open(os.path.join(work, 'edit_js', n + '.bin'), 'rb').read()),
+                         ('gen', lambda n: open(os.path.join(work, 'gen_js', n + '.bin'), 'rb').read())):
             outb = os.path.join(work, sub + '_py')
             r = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'levels.py'), 'import', '--src', os.path.join(work, sub), '--out', outb],
                                capture_output=True, text=True, encoding='utf-8')

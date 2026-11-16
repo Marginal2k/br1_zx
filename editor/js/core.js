@@ -67,6 +67,10 @@
   const unutf8 = u => { let s = new TextDecoder('utf-8').decode(u); if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1); return s.replace(/\r\n?/g, '\n'); };
 
   class FormatError extends Error {}
+  // сообщения для человека: ключ - русский текст с {подстановками}; интерфейс может подменить переводчик (js/i18n.js)
+  const fmt = (s, v) => v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s;
+  let tr = fmt;
+  function setTranslator(f) { tr = f || fmt; }
 
   // ------------------------------------------------------------------ глифы (text.py: CODE_MAIN, ENC_MAIN - побеждает последний)
   let CODE = null, ENC = null;
@@ -94,7 +98,7 @@
   function taskDecode(region) {
     const ends = [];
     region.forEach((b, i) => { if (b === END_CODE) ends.push(i); });
-    if (ends.length < 3) throw new FormatError('в задании меньше трёх строк');
+    if (ends.length < 3) throw new FormatError(tr('в задании меньше трёх строк'));
     const lines = [];
     let pos = 0;
     for (const e of ends.slice(0, 3)) {
@@ -113,9 +117,9 @@
   function taskEncode(task) {
     const chk = taskCheck(task);
     chk.lines.forEach((r, i) => {
-      if (r.bad.length) throw new FormatError(`задание, строка ${i + 1}: символа «${r.bad[0].ch}» нет в шрифте игры`);
+      if (r.bad.length) throw new FormatError(tr('задание, строка {n}: символа «{ch}» нет в шрифте игры', { n: i + 1, ch: r.bad[0].ch }));
     });
-    if (chk.bytes > TASK_LEN) throw new FormatError('текст задания длиннее 63 байт (с признаками конца строк)');
+    if (chk.bytes > TASK_LEN) throw new FormatError(tr('текст задания длиннее 63 байт (с признаками конца строк)'));
     const out = new Uint8Array(TASK_LEN);
     let p = 0;
     for (const r of chk.lines) { for (const g of r.glyphs) out[p++] = g; out[p++] = END_CODE; }
@@ -139,7 +143,7 @@
       }
       if (ln.trim()) rows.push(ln);
     }
-    if (rows.length !== 3 || !rows.every(r => r.startsWith('|') && r.endsWith('|') && r.length >= 2)) throw new FormatError('task.txt: нужно три строки |...|');
+    if (rows.length !== 3 || !rows.every(r => r.startsWith('|') && r.endsWith('|') && r.length >= 2)) throw new FormatError(tr('task.txt: нужно три строки |...|'));
     return { lines: rows.map(r => r.slice(1, -1)), tail };
   }
 
@@ -153,14 +157,14 @@
     const out = [];
     let i = 0;
     while (i + 5 <= HER_BYTES && d[i] !== 0xFF) { out.push({ side: d[i], type: d[i + 1], x: d[i + 2], y: d[i + 3], extra: d[i + 4] }); i += 5; }
-    for (; i < HER_BYTES; i++) if (d[i] !== 0xFF) throw new FormatError('герои: после конца записей не #FF');
+    for (; i < HER_BYTES; i++) if (d[i] !== 0xFF) throw new FormatError(tr('герои: после конца записей не #FF'));
     return out;
   }
   function heroesToBytes(list) {
-    if (list.length > HER_MAX) throw new FormatError(`героев ${list.length}, больше ${HER_MAX}`);
+    if (list.length > HER_MAX) throw new FormatError(tr('героев {n}, больше {max}', { n: list.length, max: HER_MAX }));
     const out = new Uint8Array(HER_BYTES).fill(0xFF);
     list.forEach((h, k) => {
-      for (const v of [h.side, h.type, h.x, h.y]) if (!(v >= 0 && v <= 254)) throw new FormatError(`герой ${k + 1}: недопустимое значение`);
+      for (const v of [h.side, h.type, h.x, h.y]) if (!(v >= 0 && v <= 254)) throw new FormatError(tr('герой {n}: недопустимое значение', { n: k + 1 }));
       out.set([h.side, h.type, h.x, h.y, h.extra & 0xFF], k * 5);
     });
     return out;
@@ -175,7 +179,7 @@
       ln = ln.split(';')[0].trim();
       if (!ln) return;
       const v = ln.split(/\s+/).map(Number);
-      if (v.length !== 5 || v.some(isNaN)) throw new FormatError(`heroes.txt:${n + 1}: нужно 5 чисел (сторона тип x y extra)`);
+      if (v.length !== 5 || v.some(isNaN)) throw new FormatError(tr('heroes.txt:{n}: нужно 5 чисел (сторона тип x y extra)', { n: n + 1 }));
       out.push({ side: v[0], type: v[1], x: v[2], y: v[3], extra: v[4] & 0xFF });
     });
     heroesToBytes(out);
@@ -190,12 +194,12 @@
   }
   function mapFromCsv(text) {
     const rows = text.replace(/\r/g, '').split('\n').filter(l => l.trim() && !l.trimStart().startsWith(';'));
-    if (rows.length !== MAP_N) throw new FormatError(`в карте должно быть 64 строки, а их ${rows.length}`);
+    if (rows.length !== MAP_N) throw new FormatError(tr('в карте должно быть 64 строки, а их {n}', { n: rows.length }));
     const out = new Uint8Array(MAP_N * MAP_N);
     rows.forEach((ln, y) => {
       const v = ln.trim().split(/[,;\s]+/).filter(s => s !== '');
-      if (v.length !== MAP_N) throw new FormatError(`карта, строка ${y + 1}: ${v.length} значений вместо 64`);
-      v.forEach((s, x) => { const i = parseInt(s, 10); if (!(i >= 0 && i <= 255)) throw new FormatError(`карта, строка ${y + 1}: значение ${s}`); out[y * MAP_N + x] = i; });
+      if (v.length !== MAP_N) throw new FormatError(tr('карта, строка {y}: {n} значений вместо 64', { y: y + 1, n: v.length }));
+      v.forEach((s, x) => { const i = parseInt(s, 10); if (!(i >= 0 && i <= 255)) throw new FormatError(tr('карта, строка {y}: значение {v}', { y: y + 1, v: s })); out[y * MAP_N + x] = i; });
     });
     return out;
   }
@@ -300,7 +304,7 @@
   }
   function levelFromBlock(b, name) {
     b = Uint8Array.from(b);
-    if (b.length !== BLOCK) throw new FormatError(`блок уровня: ${b.length} байт вместо ${BLOCK}`);
+    if (b.length !== BLOCK) throw new FormatError(tr('блок уровня: {n} байт вместо {need}', { n: b.length, need: BLOCK }));
     if (!isDataBlock(b)) return { name, kind: 'raw', raw: b };
     return {
       name, kind: 'data', script: b.slice(0, OFF_HER), task: taskDecode(b.slice(OFF_TASK, OFF_TASK + TASK_LEN)),
@@ -340,7 +344,7 @@
     if ((m = /^%([01]+)$/.exec(tok))) return parseInt(m[1], 2);
     if (/^\d+$/.test(tok)) return parseInt(tok, 10);
     if (Object.prototype.hasOwnProperty.call(sym, tok)) return sym[tok];
-    throw new FormatError(`не понимаю значение «${tok}»`);
+    throw new FormatError(tr('не понимаю значение «{v}»', { v: tok }));
   }
   function parseExpr(e, sym, pc) {
     const parts = e.replace(/\s+/g, '').split(/(?=[+-])/);
@@ -388,18 +392,18 @@
         if (op === 'DEFW' || op === 'DW' || op === 'WORD') { const v = []; args.split(',').forEach(a => { const x = parseExpr(a, sym, pc); v.push(x & 255, (x >> 8) & 255); }); emit(v); return; }
         if (op === 'DEFS' || op === 'DS' || op === 'BLOCK') {
           const a = args.split(','); const n = parseExpr(a[0], sym, pc), f = a.length > 1 ? parseExpr(a[1], sym, pc) : 0;
-          if (n < 0) throw new FormatError('отрицательный DEFS (код или данные заходят дальше, чем можно)');
+          if (n < 0) throw new FormatError(tr('отрицательный DEFS (код или данные заходят дальше, чем можно)'));
           emit(new Array(n).fill(f)); return;
         }
         if (op === 'INCBIN') {
-          if (!/"task\.bin"/i.test(args)) throw new FormatError('INCBIN поддерживается только для "task.bin"');
+          if (!/"task\.bin"/i.test(args)) throw new FormatError(tr('INCBIN поддерживается только для "task.bin"'));
           emit(task); return;
         }
         if (op === 'DEVICE' || op === 'OUTPUT') return;
         // команда Z80: байты из комментария
-        if (!hexm) throw new FormatError(`команда «${t}» без машинного кода в комментарии (; АДРЕС  БАЙТЫ). Соберите блок игровыми средствами (python tools/levels.py import) и откройте .bin`);
+        if (!hexm) throw new FormatError(tr('команда «{cmd}» без машинного кода в комментарии (; АДРЕС  БАЙТЫ). Соберите блок игровыми средствами (python tools/levels.py import) и откройте .bin', { cmd: t }));
         const addr = parseInt(hexm[1], 16);
-        if (addr !== pc) throw new FormatError(`адрес в комментарии ${hexm[1]} не совпадает с текущим #${pc.toString(16).toUpperCase()}`);
+        if (addr !== pc) throw new FormatError(tr('адрес в комментарии {a} не совпадает с текущим #{pc}', { a: hexm[1], pc: pc.toString(16).toUpperCase() }));
         const h = hexm[2];
         const bytes = [];
         for (let i = 0; i + 1 < h.length; i += 2) bytes.push(parseInt(h.substr(i, 2), 16));
@@ -408,8 +412,8 @@
         throw new FormatError(`${where}: ${e.message}`);
       }
     });
-    if (start !== LEVDAT) throw new FormatError('script.asm: данные должны начинаться с ORG #79C0');
-    if (max - start !== SCRIPT_LEN) throw new FormatError(`script.asm: размер ${max - start} вместо ${SCRIPT_LEN} (код задания не должен выходить за #7AA0, данные - за #7E10)`);
+    if (start !== LEVDAT) throw new FormatError(tr('script.asm: данные должны начинаться с ORG #79C0'));
+    if (max - start !== SCRIPT_LEN) throw new FormatError(tr('script.asm: размер {n} вместо {need} (код задания не должен выходить за #7AA0, данные - за #7E10)', { n: max - start, need: SCRIPT_LEN }));
     return out.slice(start, max);
   }
 
@@ -612,9 +616,9 @@
       else if (type === 'PLTE') pal = d; else if (type === 'tRNS') trns = d; else if (type === 'IDAT') idat.push(d); else if (type === 'IEND') break;
       p += 12 + len;
     }
-    if (il) throw new FormatError('PNG: чересстрочный не поддерживается');
+    if (il) throw new FormatError(tr('PNG: чересстрочный не поддерживается'));
     const bppx = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[ct];
-    if (!bppx || (depth !== 8 && !(ct === 3 && depth < 8))) throw new FormatError('PNG: поддерживаются только 8-битные (или палитровые) изображения');
+    if (!bppx || (depth !== 8 && !(ct === 3 && depth < 8))) throw new FormatError(tr('PNG: поддерживаются только 8-битные (или палитровые) изображения'));
     const raw = await inflate(concat(idat));
     const stride = ct === 3 && depth < 8 ? Math.ceil(w * depth / 8) : w * bppx, bpp = Math.max(1, ct === 3 && depth < 8 ? 1 : bppx);
     const img = new Uint8Array(stride * h);
@@ -650,7 +654,7 @@
   async function levelFromFolder(files, name, inflate) {
     const get = n => files[n];
     const txt = n => unutf8(get(n));
-    for (const n of ['script.asm', 'task.txt', 'map.csv', 'heroes.txt']) if (!get(n)) throw new FormatError(`в каталоге нет ${n}`);
+    for (const n of ['script.asm', 'task.txt', 'map.csv', 'heroes.txt']) if (!get(n)) throw new FormatError(tr('в каталоге нет {f}', { f: n }));
     const task = taskFromTxt(txt('task.txt'));
     const taskBytes = taskEncode(task);
     const asmText = txt('script.asm');
@@ -659,10 +663,10 @@
     const orig = get('screen.orig.scr') && get('screen.orig.scr').length === 6912 ? get('screen.orig.scr') : null;
     if (get('screen.png')) {
       const im = await decodePng(get('screen.png'), inflate);
-      if (im.w !== 256 || im.h !== 192) throw new FormatError(`screen.png: размер ${im.w}x${im.h}, нужен 256x192`);
+      if (im.w !== 256 || im.h !== 192) throw new FormatError(tr('screen.png: размер {w}x{h}, нужен 256x192', { w: im.w, h: im.h }));
       screen = rgbToScr(im.rgba, 4, orig);
     } else if (orig) screen = Uint8Array.from(orig);
-    else throw new FormatError('в каталоге нет screen.png');
+    else throw new FormatError(tr('в каталоге нет {f}', { f: 'screen.png' }));
     return {
       name, kind: 'data', script, task, heroes: heroesFromTxt(txt('heroes.txt')), map: mapFromCsv(txt('map.csv')), screen,
       asmText, asmOrig: get('script.orig.asm') ? txt('script.orig.asm') : null
@@ -712,7 +716,7 @@
     });
   }
   function levelFromProject(o) {
-    if (!o || o.format !== 'br-level-editor') throw new FormatError('это не проект редактора уровней');
+    if (!o || o.format !== 'br-level-editor') throw new FormatError(tr('это не проект редактора уровней'));
     if (o.kind === 'raw') return { name: o.name, kind: 'raw', raw: b64dec(o.raw) };
     const map = new Uint8Array(4096);
     o.map.forEach((r, y) => r.split(',').forEach((v, x) => { map[y * 64 + x] = +v; }));
@@ -728,23 +732,27 @@
   function validate(lv) {
     const R = [];
     const err = (msg, x, y) => R.push({ level: 'error', msg, x, y }), warn = (msg, x, y) => R.push({ level: 'warn', msg, x, y });
-    if (lv.kind === 'raw') { warn('это не блок уровня (код концовки или испорченный блок): редактор сохраняет его как есть'); return R; }
+    if (lv.kind === 'raw') { warn(tr('это не блок уровня (код концовки или испорченный блок): редактор сохраняет его как есть')); return R; }
     const m = lv.map;
     // граница
+    // клетка (0,0) = 1 - признак подземелья (wlib1a.asm typMAP: LEV_T = 1, игра обнуляет её при старте); так у всех уровней ландшафта 3
+    const dun = m[0] === 1, land3 = lv.script[HOFF.fsLAND] === 3;
     let nb = 0, first = null;
-    for (let i = 0; i < 64; i++) for (const [x, y] of [[i, 0], [i, 63], [0, i], [63, i]]) if (m[y * 64 + x] !== 0) { nb++; if (!first) first = [x, y]; }
-    if (nb) warn(`граница карты: ${nb} клеток края не 0 (граница)`, first[0], first[1]);
+    for (let i = 0; i < 64; i++) for (const [x, y] of [[i, 0], [i, 63], [0, i], [63, i]]) if (m[y * 64 + x] !== 0 && !(x === 0 && y === 0 && dun)) { nb++; if (!first) first = [x, y]; }
+    if (nb) warn(tr('граница карты: {n} клеток края не 0 (граница)', { n: nb }), first[0], first[1]);
+    if (land3 && !dun) warn(tr('ландшафт 3 (подземелье), но в клетке 0,0 не 1: игра посчитает уровень наземным (поставьте туда тайл 1)'), 0, 0);
+    if (!land3 && m[0] !== 0) warn(tr('в клетке 0,0 не 0: игра посчитает уровень подземельем (без зданий), а ландшафт не 3'), 0, 0);
     // здания
     const land = lv.script[HOFF.fsLAND];
     for (let i = 0; i < 4096; i++) {
       const v = m[i], x = i & 63, y = i >> 6;
       if (v >= 120) {
         const c = i + SHIFT[v - 120];
-        if (c < 0 || c >= 4096 || Math.abs((c & 63) - x) > 1) { err(`хвост здания (${v}) указывает за край карты`, x, y); continue; }
+        if (c < 0 || c >= 4096 || Math.abs((c & 63) - x) > 1) { err(tr('хвост здания ({v}) указывает за край карты', { v }), x, y); continue; }
         const k = buildingKind(m[c]);
-        if (!k) { err(`хвост здания (${v}) указывает на клетку ${c & 63},${c >> 6} с тайлом ${m[c]}, а это не центр здания`, x, y); continue; }
-        if (v - 120 >= k) err(`хвост ${v} у здания 2x2 (центр ${m[c]}) - у таких только 120..122`, x, y);
-      } else if (v > 119) err(`тайл ${v} не существует`, x, y);
+        if (!k) { err(tr('хвост здания ({v}) указывает на клетку {cx},{cy} с тайлом {t}, а это не центр здания', { v, cx: c & 63, cy: c >> 6, t: m[c] }), x, y); continue; }
+        if (v - 120 >= k) err(tr('хвост {v} у здания 2x2 (центр {c}) - у таких только 120..122', { v, c: m[c] }), x, y);
+      } else if (v > 119) err(tr('тайл {v} не существует', { v }), x, y);
       if (buildingKind(v)) {
         let any = false, all = true;
         const k = buildingKind(v);
@@ -753,42 +761,43 @@
           const has = j >= 0 && j < 4096 && m[j] === 120 + d;
           if (has) any = true; else if (d < k) all = false;
         }
-        if (any && !all) err(`здание (центр ${v}) неполное: не хватает частей`, x, y);
-        if (any && k === 8 && (x < 1 || x > 62 || y < 1 || y > 62)) err('здание у самого края карты', x, y);
-        if (any && land === 3) warn('здание на ландшафте 3 (подземелье) - у него нет графики зданий', x, y);
+        if (any && !all) err(tr('здание (центр {v}) неполное: не хватает частей', { v }), x, y);
+        if (any && k === 8 && (x < 1 || x > 62 || y < 1 || y > 62)) err(tr('здание у самого края карты'), x, y);
+        if (any && land === 3) warn(tr('здание на ландшафте 3 (подземелье) - у него нет графики зданий'), x, y);
       }
     }
     // герои
-    if (lv.heroes.length > HER_MAX) err(`героев ${lv.heroes.length}, допустимо не больше ${HER_MAX}`);
+    if (lv.heroes.length > HER_MAX) err(tr('героев {n}, допустимо не больше {max}', { n: lv.heroes.length, max: HER_MAX }));
     const per = [0, 0, 0], occ = new Map();
     lv.heroes.forEach((h, k) => {
-      const n = `герой ${k + 1} (${h.x},${h.y})`;
+      const n = tr('герой {n} ({x},{y})', { n: k + 1, x: h.x, y: h.y });
       // wmisc_1.asm NEWALL: сторона 0/1 -> массив MASTER xor сторона (HUMAN/KUNGE), сторона >= 2 -> SLAVE (пленники); в уровнях кунгов пленники - 3
-      if (h.side > 3) err(`${n}: сторона ${h.side} (допустимо 0..3)`, h.x, h.y); else per[Math.min(h.side, 2)]++;
-      if (h.type > 26) err(`${n}: тип ${h.type} (допустимо 0..26)`, h.x, h.y);
-      if (h.x > 63 || h.y > 63) { err(`${n}: вне карты`); return; }
+      if (h.side > 3) err(tr('{h}: сторона {v} (допустимо 0..3)', { h: n, v: h.side }), h.x, h.y); else per[Math.min(h.side, 2)]++;
+      if (h.type > 26) err(tr('{h}: тип {v} (допустимо 0..26)', { h: n, v: h.type }), h.x, h.y);
+      if (h.x > 63 || h.y > 63) { err(tr('{h}: вне карты', { h: n })); return; }
       const v = m[h.y * 64 + h.x];
-      if (!(v >= 1 && v < GO_MAX)) warn(`${n}: стоит на непроходимой клетке (тайл ${v}; проходимы 1..${GO_MAX - 1})`, h.x, h.y);
+      if (!(v >= 1 && v < GO_MAX)) warn(tr('{h}: стоит на непроходимой клетке (тайл {v}; проходимы 1..{max})', { h: n, v, max: GO_MAX - 1 }), h.x, h.y);
       const key = h.y * 64 + h.x;
-      if (occ.has(key)) warn(`${n}: в той же клетке, что и герой ${occ.get(key) + 1}`, h.x, h.y); else occ.set(key, k);
+      if (occ.has(key)) warn(tr('{h}: в той же клетке, что и герой {k}', { h: n, k: occ.get(key) + 1 }), h.x, h.y); else occ.set(key, k);
     });
-    ['своих', 'врагов', 'пленников'].forEach((s, i) => { if (per[i] > SIDE_LIMIT[i]) warn(`${s} ${per[i]}: в игре место для ${SIDE_LIMIT[i]} (лишние могут не появиться)`); });
-    if (!lv.heroes.some(h => h.side === 0)) warn('нет ни одного своего героя');
+    ['людей', 'кунгов', 'пленников'].forEach((s, i) => { if (per[i] > SIDE_LIMIT[i]) warn(tr('{s} {n}: в игре место для {max} (лишние могут не появиться)', { s: tr(s), n: per[i], max: SIDE_LIMIT[i] })); });
+    // сторона в файле героев - раса (0 люди, 1 кунги); свои - раса игрока (MASTER): wmisc_1.asm NEWALL, массив = MASTER xor сторона
+    if (!lv.heroes.some(h => h.side === (lv.script[HOFF.MASTER] ? 1 : 0))) warn(tr('нет ни одного своего героя'));
     // задание
     const tc = taskCheck(lv.task);
     tc.lines.forEach((r, i) => {
-      if (r.bad.length) err(`задание, строка ${i + 1}: символа «${r.bad[0].ch}» нет в шрифте игры`);
-      if (r.glyphs.length > TASK_W) warn(`задание, строка ${i + 1}: ${r.glyphs.length} знаков (в окне игры помещается ${TASK_W})`);
+      if (r.bad.length) err(tr('задание, строка {n}: символа «{ch}» нет в шрифте игры', { n: i + 1, ch: r.bad[0].ch }));
+      if (r.glyphs.length > TASK_W) warn(tr('задание, строка {n}: {k} знаков (в окне игры помещается {max})', { n: i + 1, k: r.glyphs.length, max: TASK_W }));
     });
-    if (tc.bytes > TASK_LEN) err(`задание: ${tc.bytes} байт, допустимо ${TASK_LEN} (3 строки по ${TASK_W} знаков)`);
+    if (tc.bytes > TASK_LEN) err(tr('задание: {n} байт, допустимо {max} (3 строки по {w} знаков)', { n: tc.bytes, max: TASK_LEN, w: TASK_W }));
     // параметры
-    const L = lv.script[HOFF.fsLAND]; if (L < 1 || L > 4) err(`ландшафт ${L} (допустимо 1..4)`);
-    if (lv.script[HOFF.fsMUS] > 7) err(`мелодия ${lv.script[HOFF.fsMUS]} (допустимо 0..7)`);
-    if (lv.script[HOFF.MASTER] > 1) err('MASTER: допустимо 0 (люди) или 1 (кунги)');
-    if (!digitsOk(lv.script, 'MONEY')) warn('MONEY: в цифрах есть значения больше 9');
-    if (!digitsOk(lv.script, 'WOOD')) warn('WOOD: в цифрах есть значения больше 9');
-    if (hasProbe(lv.script)) warn('в сценарии проверка контрольной суммы (защита TST): в нашей сборке игры уровень сломается - «Убрать защиту» на вкладке «Сценарий»');
-    if (lv.script[0] !== 0xC9) err('isRUNL должен быть #C9');
+    const L = lv.script[HOFF.fsLAND]; if (L < 1 || L > 4) err(tr('ландшафт {v} (допустимо 1..4)', { v: L }));
+    if (lv.script[HOFF.fsMUS] > 7) err(tr('мелодия {v} (допустимо 0..7)', { v: lv.script[HOFF.fsMUS] }));
+    if (lv.script[HOFF.MASTER] > 1) err(tr('MASTER: допустимо 0 (люди) или 1 (кунги)'));
+    if (!digitsOk(lv.script, 'MONEY')) warn(tr('{p}: в цифрах есть значения больше 9', { p: 'MONEY' }));
+    if (!digitsOk(lv.script, 'WOOD')) warn(tr('{p}: в цифрах есть значения больше 9', { p: 'WOOD' }));
+    if (hasProbe(lv.script)) warn(tr('в сценарии проверка контрольной суммы (защита TST): в нашей сборке игры уровень сломается - «Убрать защиту» на вкладке «Сценарий»'));
+    if (lv.script[0] !== 0xC9) err(tr('isRUNL должен быть #C9'));
     return R;
   }
 
@@ -805,7 +814,7 @@
 
   return {
     BLOCK, OFF_HER, OFF_MAP, OFF_SCR, OFF_TASK, TASK_LEN, SCRIPT_LEN, OFF_CODE, OFF_MIN, MAP_N, HER_MAX, TASK_W, SHIFT, GO_MAX, HEADER, HOFF, ZXPAL,
-    FormatError, b64dec, b64enc, eq, utf8, unutf8, crc32,
+    FormatError, setTranslator, fmt, b64dec, b64enc, eq, utf8, unutf8, crc32,
     initGlyphs, glyphChar, encodeLine, taskDecode, taskEncode, taskCheck, taskToTxt, taskFromTxt,
     heroesFromBytes, heroesToBytes, heroesToTxt, heroesFromTxt, mapToCsv, mapFromCsv,
     buildingKind, tileIndex, buildingCells, buildingAt, canPlaceBuilding, eraseBuilding, placeBuilding, paintTile,
