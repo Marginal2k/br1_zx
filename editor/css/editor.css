@@ -34,6 +34,10 @@ main { flex: 1; display: flex; min-height: 0; }
 .tab.on { display: block; }
 .tools { display: flex; gap: 4px; flex-wrap: wrap; }
 .opts { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; color: var(--dim); }
+.tools button[hidden] { display: none; }
+.smart { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.smart[hidden], .smart label[hidden] { display: none; }
+.smart .hint { flex-basis: 100%; margin: 0; }
 .cur { display: flex; gap: 8px; align-items: center; min-height: 36px; }
 .cur canvas { image-rendering: pixelated; border: 1px solid var(--line); }
 

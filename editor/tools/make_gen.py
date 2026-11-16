@@ -361,6 +361,9 @@ def main():
         adj = [collections.Counter(), collections.Counter()]       # справа, снизу
         sig = collections.defaultdict(collections.Counter)
         clsmap = {t: r['cls'] for t, r in rows.items()}
+        # стороны тайла (n e s w): same[t][d] - сколько раз сосед того же класса, tot[t][d] - всего (рамка карты не в счёт)
+        same = collections.defaultdict(lambda: [0, 0, 0, 0])
+        tot = collections.defaultdict(lambda: [0, 0, 0, 0])
         for n, m in maps:
             for i, v in enumerate(m):
                 x, y = i & 63, i >> 6
@@ -369,6 +372,11 @@ def main():
                 if y < 63 and v in idx and m[i + 64] in idx:
                     adj[1][(idx[v], idx[m[i + 64]])] += 1
                 if v in idx:
+                    for d, (dx, dy) in enumerate(((0, -1), (1, 0), (0, 1), (-1, 0))):
+                        xx, yy = x + dx, y + dy
+                        if 0 <= xx < 64 and 0 <= yy < 64 and m[yy * 64 + xx] != 0:
+                            tot[v][d] += 1
+                            same[v][d] += clsmap.get(m[yy * 64 + xx]) == clsmap[v]
                     k = [C.index(clsmap[v])]
                     for dx, dy in DXY:
                         xx, yy = x + dx, y + dy
@@ -377,7 +385,11 @@ def main():
         data['lands'][str(land)] = dict(
             classes=C, tiles=use, cls=[C.index(rows[t]['cls']) for t in use], freq=[rows[t]['freq'] for t in use],
             adjR=[[a, b, c] for (a, b), c in sorted(adj[0].items())], adjD=[[a, b, c] for (a, b), c in sorted(adj[1].items())],
-            sig={k: [[t, c] for t, c in sorted(v.items())] for k, v in sorted(sig.items())}, maps=[n for n, _ in maps])
+            sig={k: [[t, c] for t, c in sorted(v.items())] for k, v in sorted(sig.items())}, maps=[n for n, _ in maps],
+            # side[k] = [other, same]: биты сторон n=1 e=2 s=4 w=8, где у автора сосед почти всегда другого класса (берег, край дороги)
+            # или почти всегда того же; кисти не ставят, например, береговой тайл посреди реки
+            side=[[sum(1 << d for d in range(4) if tot[t][d] >= 4 and same[t][d] <= 0.05 * tot[t][d]),
+                   sum(1 << d for d in range(4) if tot[t][d] >= 4 and same[t][d] >= 0.95 * tot[t][d])] for t in use])
         print(f'ландшафт {land}: карт {len(maps)}, тайлов {len(freq)}, в генерации {len(use)}, авто-класс у {sum(r["src"] == "auto" for r in rows.values())}, '
               f'несогласий с ручной {sum(r["src"] == "manual" and r["auto"] != r["cls"] for r in rows.values())}, переходных {sum(bool(r["trans"]) for r in rows.values())}, '
               f'пар справа {len(adj[0])}, снизу {len(adj[1])}, контекстов {len(sig)}')

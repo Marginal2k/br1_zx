@@ -49,9 +49,20 @@
       <div class="tools">
         <button data-tool="brush" class="on" title="Кисть (B): ЛКМ - рисовать, ПКМ - взять тайл с карты">Кисть</button>
         <button data-tool="rect" title="Прямоугольник (R): протянуть ЛКМ">Прямоуг.</button>
+        <button data-tool="road" title="Дорога (D): провести ЛКМ - повороты, развилки и мосты редактор ставит сам; ПКМ - стереть дорогу">Дорога</button>
+        <button data-tool="river" title="Река (W): провести ЛКМ - берега и повороты редактор ставит сам; ПКМ - стереть воду">Река</button>
+        <button data-tool="paint" title="Покрытие (F): провести ЛКМ - лес, площадь, а в подземелье скала, стена, пол; края подберутся сами; ПКМ - стереть это покрытие">Покрытие</button>
+        <button data-tool="regen" title="Перерисовать (G): протянуть ЛКМ - тайлы внутри подберутся заново по картам автора, смысл клеток прежний">Перерисовать</button>
         <button data-tool="building" title="Здание (U): щелчок - поставить здание целиком (центр там, где курсор)">Здание</button>
         <button data-tool="erase" title="Снести здание (E): щелчок по любой его части">Снести</button>
         <button data-tool="hand" title="Рука (H) - двигать карту; ещё: средняя кнопка или пробел + ЛКМ">Рука</button>
+      </div>
+      <div id="smartOpts" class="smart" hidden>
+        <label id="rwRow">ширина реки <select id="riverW"><option value="3">3 клетки</option><option value="4">4 клетки</option><option value="5">5 клеток</option></select></label>
+        <label id="pcRow">покрытие <select id="paintCls"></select></label>
+        <label id="pwRow">ширина <select id="paintW"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></label>
+        <button id="bReroll" title="Тот же штрих, другой подбор тайлов">Ещё вариант</button>
+        <p class="hint" id="smartHint"></p>
       </div>
       <div class="opts">
         <label><input type="checkbox" id="optGrid"> сетка</label>

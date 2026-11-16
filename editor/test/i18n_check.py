@@ -27,6 +27,9 @@ for name in ['HNAME', 'SIDE_NAME', 'INK']:
 m = re.search(r'const GF = \[(.*?)\n  \];', s, re.S)
 for x in re.findall(r"'([^']*)'", m.group(1)):
     add(x)
+m = re.search(r'const PAINT_NAME = \{(.*?)\};', s, re.S)
+for x in re.findall(r"'([^']*)'", m.group(1)):
+    add(x)
 m = re.search(r'const P = \{(.*?)\n  \};', s, re.S)
 for x in re.findall(r"'([^']*)'", m.group(1)):
     add(x)

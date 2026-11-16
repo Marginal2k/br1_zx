@@ -69,13 +69,18 @@
     return { K, W, tiles: L.tiles, cls: L.cls, freq: L.freq, classes: L.classes, comp, classMask, index, sig: L.sig, sigCache: new Map(), pairs };
   }
 
-  /** WFC: cg - класс каждой клетки (Uint8Array 64*64), fixed - заданный тайл модели или -1. Возвращает {tiles, resets, relaxed} или null. */
+  /**
+   * WFC: cg - класс каждой клетки (Uint8Array 64*64), fixed - заданный тайл модели или -1. Возвращает {tiles, resets, relaxed} или null.
+   * opt.local (кисти): закреплённые клетки только ограничивают соседей, сами не проверяются (на карте пользователя между ними
+   * бывают пары не из статистики); fixed = -2 - тайл вне модели, соседей не ограничивает; opt.hard[i] - класс клетки не ослабляется;
+   * opt.allow (Int32Array 4096*W) и opt.hasAllow[i] - дополнительное сужение тайлов клетки (пока класс не ослаблен).
+   */
   function wfc(M, cg, fixed, rng, opt) {
     opt = opt || {};
     const { K, W, comp, classMask } = M, N = 4096, maxResets = opt.maxResets || 400, BORDER = opt.borderClass || 0;
     const D = new Int32Array(N * W), cnt = new Uint16Array(N), relax = new Uint8Array(N), fails = new Uint16Array(256);
     const prio = new Float32Array(N); for (let i = 0; i < N; i++) prio[i] = rng.f() * 0.5;
-    const NC = M.classes.length, noRelax = (opt.noRelax || []).map(n => M.classes.indexOf(n));
+    const NC = M.classes.length, noRelax = (opt.noRelax || []).map(n => M.classes.indexOf(n)), LOCAL = !!opt.local, hard = opt.hard;
     // куча клеток по (число вариантов + случайная добавка) с ленивым удалением устаревших записей
     const hk = [], hi = [];
     function hpush(i) {
@@ -100,8 +105,11 @@
     function init(i) {
       const o = i * W;
       if (fixed[i] >= 0) { for (let w = 0; w < W; w++) D[o + w] = 0; D[o + (fixed[i] >> 5)] = 1 << (fixed[i] & 31); cnt[i] = 1; return; }
+      if (fixed[i] === -2) { for (let w = 0; w < W; w++) D[o + w] = -1; cnt[i] = 1; return; }
       const r = relax[i];
-      if (!r) { const m = classMask[cg[i]]; for (let w = 0; w < W; w++) D[o + w] = m[w]; }
+      if (r === 1 && opt.allow2 && opt.allow2Has[i]) {      // первая ступень ослабления: без правил сторон, но в своём классе и семействе
+        const m = classMask[cg[i]]; for (let w = 0; w < W; w++) D[o + w] = m[w] & opt.allow2[o + w];
+      } else if (!r) { const m = classMask[cg[i]]; for (let w = 0; w < W; w++) D[o + w] = m[w]; if (opt.hasAllow && opt.hasAllow[i]) for (let w = 0; w < W; w++) D[o + w] &= opt.allow[o + w]; }
       else {
         for (let w = 0; w < W; w++) D[o + w] = 0;
         const x = i & 63, y = i >> 6, seen = new Uint8Array(NC);
@@ -122,10 +130,11 @@
           const xx = x + DX[d], yy = y + DY[d];
           if (xx < 0 || yy < 0 || xx > 63 || yy > 63) continue;
           const j = yy * 64 + xx, oj = j * W, cd = comp[d];
+          if (LOCAL && fixed[j] !== -1) continue;
           tmp.fill(0);
           for (let w = 0; w < W; w++) {
             let bits = D[o + w];
-            while (bits) { const b = 31 - Math.clz32(bits & -bits); bits &= bits - 1; const m = cd[(w << 5) + b]; for (let v = 0; v < W; v++) tmp[v] |= m[v]; }
+            while (bits) { const b = 31 - Math.clz32(bits & -bits); bits &= bits - 1; if ((w << 5) + b >= K) break; const m = cd[(w << 5) + b]; for (let v = 0; v < W; v++) tmp[v] |= m[v]; }
           }
           let ch = false, n = 0;
           for (let w = 0; w < W; w++) { const nv = D[oj + w] & tmp[w]; if (nv !== D[oj + w]) { D[oj + w] = nv; ch = true; } n += pop32(nv); }
@@ -138,13 +147,16 @@
     let resets = 0, relaxed = 0;
     function repair(c) {
       for (;;) {
+        if (opt.trace) opt.trace.push(c);
         if (++resets > maxResets) return false;
         const cx = c & 63, cy = c >> 6, key = (cy >> 2) * 16 + (cx >> 2), k = ++fails[key];
         const r = Math.min(1 + k, 14), up = k > 3;
         for (let y = Math.max(0, cy - r); y <= Math.min(63, cy + r); y++) for (let x = Math.max(0, cx - r); x <= Math.min(63, cx + r); x++) {
           const i = y * 64 + x;
-          if (fixed[i] >= 0) continue;
-          if (up && cg[i] !== BORDER && relax[i] < 3 && Math.max(Math.abs(x - cx), Math.abs(y - cy)) <= 2 + (k >> 1)) { relax[i]++; relaxed++; }
+          if (fixed[i] !== -1) continue;
+          const dd = Math.max(Math.abs(x - cx), Math.abs(y - cy)), isHard = hard && hard[i];
+          // клетки штриха (hard) уступают позже и только рядом с противоречием
+          if (up && !(isHard && (hard[i] > 1 || k <= 8 || dd > 1)) && cg[i] !== BORDER && relax[i] < 3 && dd <= 2 + (k >> 1)) { relax[i]++; relaxed++; }
           init(i);
         }
         // полное распространение: прерванное противоречием могло оставить суженные, но не переданные соседям клетки
@@ -788,6 +800,390 @@
     return res;
   }
 
+  // ---------------------------------------------------------------- умные кисти: дорога, река, перерисовка области
+  // Кисть меняет только смысл клеток (дорога, вода, мост, трава). Тайлы в полосе вокруг штриха заново подбирает WFC по парам
+  // соседей автора; клетки за полосой закреплены, здания и тайлы вне модели не трогаются.
+  const BRUSH_KINDS = ['road', 'river', 'paint', 'area'];
+  const RIVER_W = [3, 4, 5];
+  const BRIDGE_MAX = 12;
+  // классы, которые рисует кисть «Покрытие»
+  const PAINT_CLASSES = { outdoor: ['forest', 'paveh', 'pavek'], dungeon: ['rock', 'wall', 'cave', 'floor'] };               // самый длинный мост (у автора мосты короче)            // у автора нет реки уже 3 клеток: два береговых тайла рядом не стоят никогда
+
+  /** точки штриха -> путь по 4 соседям без повторов подряд */
+  function path4(pts) {
+    const out = [];
+    const put = (x, y) => { const l = out[out.length - 1]; if (!l || l.x !== x || l.y !== y) out.push({ x, y }); };
+    for (let k = 0; k < pts.length; k++) {
+      const p = pts[k];
+      if (!out.length) { put(p.x, p.y); continue; }
+      let { x, y } = out[out.length - 1];
+      const dx = p.x - x, dy = p.y - y, n = Math.max(Math.abs(dx), Math.abs(dy));
+      // по прямой между точками; диагональный шаг разбивается на два, сначала по длинной оси
+      for (let s = 1; s <= n; s++) {
+        const tx = x + Math.round(dx * s / n), ty = y + Math.round(dy * s / n);
+        const l = out[out.length - 1];
+        if (tx !== l.x && ty !== l.y) { if (Math.abs(dx) >= Math.abs(dy)) put(tx, l.y); else put(l.x, ty); }
+        put(tx, ty);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * brushStroke(core, G, lv, op) -> {map, changed, cells, notes} или {error}
+   *   op.kind: 'road' | 'river' | 'area'; op.erase - стереть (дорогу/реку) вместо рисования;
+   *   op.points - клетки штриха [{x,y}] (для 'area' - два угла прямоугольника); op.width - ширина реки 3..5; op.seed
+   * Карта lv.map не меняется: новая карта возвращается.
+   */
+  function brushStroke(core, G, lv, op) {
+    const L = lv.script[core.HOFF.fsLAND], land = L >= 1 && L <= 4 ? L : 1;
+    if (!G.lands[String(land)]) return { error: tr('нет данных для ландшафта {l}', { l: land }) };
+    const M = modelFor(G, land), map = lv.map, side = G.lands[String(land)].side;
+    const K = {}; M.classes.forEach((n, k) => { K[n] = k; });
+    if ((op.kind === 'road' || op.kind === 'river') && (K.road === undefined || K.water === undefined)) return { error: tr('в подземелье нет дорог и рек: рисуйте скалы, стены и пещеры кистью «Покрытие»') };
+    if (op.kind === 'paint' && (K[op.cls] === undefined || !PAINT_CLASSES[land === 3 ? 'dungeon' : 'outdoor'].includes(op.cls))) return { error: tr('этим покрытием здесь рисовать нельзя: {c}', { c: op.cls }) };
+    const tok = i => { const v = map[i]; if (land !== 3 && (v >= 120 || core.buildingAt(map, i & 63, i >> 6))) return G.B; return v; };
+    // классы клеток по нынешней карте
+    // фон: трава снаружи, пещера в подземелье (туда стирает кисть)
+    const BG = K.grass !== undefined ? K.grass : (K.cave !== undefined ? K.cave : 0);
+    const cg0 = new Uint8Array(4096), known = new Int16Array(4096);
+    for (let i = 0; i < 4096; i++) {
+      const t = tok(i), k = M.index.get(t);
+      known[i] = k === undefined ? -1 : k;
+      cg0[i] = k === undefined ? (t === G.B ? K.building : BG) : M.cls[k];
+    }
+    if (land === 3 && map[0] === 1) { known[0] = M.index.get(0); cg0[0] = K.border; }      // признак подземелья: клетка 0,0 - граница
+    const inner = (x, y) => x >= 1 && y >= 1 && x <= 62 && y <= 62;
+    // клетки, у которых на карте уже есть пара соседей не из статистики автора (правка руками): их прежний тайл
+    // в перебор не вернуть, поэтому, если штрих их не касается, они остаются как есть
+    const oddPair = new Uint8Array(4096);
+    for (const b of unknownPairs(M, map, i => (i === 0 && land === 3 && map[0] === 1) ? 0 : tok(i))) { const i = b.y * 64 + b.x; oddPair[i] = 1; oddPair[b.d === 'e' ? i + 1 : i + 64] = 1; }
+    // кисти не трогают рамку, здания, ограды, площадки баз, двери и выход: дорога у них кончается, река обходит
+    const paving = op.kind === 'paint' && (op.cls === 'paveh' || op.cls === 'pavek');
+    const fixedCls = c => c === K.border || c === K.building || c === K.fence || (!paving && (c === K.paveh || c === K.pavek)) || c === K.door || c === K.exit;
+    const pts = (op.points || []).filter(p => p && p.x >= 0 && p.y >= 0 && p.x < 64 && p.y < 64);
+    if (!pts.length) return { error: tr('пустой штрих') };
+    const NC = M.classes.length, cc = [0, 1, 2, 3].map(() => new Uint8Array(NC * NC));     // какие классы у автора стоят рядом (по сторонам)
+    for (let d = 0; d < 4; d++) for (let a = 0; a < M.K; a++) for (let b = 0; b < M.K; b++) if ((M.comp[d][a][b >> 5] >>> (b & 31)) & 1) cc[d][M.cls[a] * NC + M.cls[b]] = 1;
+    // семейства внутренних тайлов воды (текстуры, которые в одном водоёме у автора не смешиваются)
+    const fam = new Int16Array(M.K).fill(-1); let nf = 0;
+    if (K.water !== undefined) {
+      const Lg = G.lands[String(land)], inner2 = k => M.cls[k] === K.water && side[k][0] === 0;
+      for (let k0 = 0; k0 < M.K; k0++) if (inner2(k0) && fam[k0] < 0) {
+        const st = [k0]; fam[k0] = nf;
+        while (st.length) { const a = st.pop(); for (const [x, y] of Lg.adjR.concat(Lg.adjD)) { const b = x === a ? y : y === a ? x : -1; if (b >= 0 && inner2(b) && fam[b] < 0) { fam[b] = nf; st.push(b); } } }
+        nf++;
+      }
+    }
+
+    /** план штриха: новые классы клеток и ограничения тайлов. noBridge - мосты (по клетке берега), которые не ставить */
+    function plan(noBridge, avoidSolid) {
+      const cg = Uint8Array.from(cg0), notes = [], bridges = [];
+      const want = new Int16Array(4096).fill(-1);          // новый класс клетки (-1 - прежний)
+      const touched = new Uint8Array(4096);                 // клетки, вокруг которых перебираются тайлы
+      // avoidSolid: последняя попытка - не трогать клетки вплотную к зданиям и оградам (стыки с ними у автора редки)
+      const nearSolid8 = i => { const x = i & 63, y = i >> 6; for (let yy = y - 1; yy <= y + 1; yy++) for (let xx = x - 1; xx <= x + 1; xx++) { const c = cg[yy * 64 + xx]; if (c !== K.border && fixedCls(c)) return true; } return false; };
+      const setc = (x, y, c) => { if (!inner(x, y)) return false; const i = y * 64 + x; if (fixedCls(cg[i]) || (avoidSolid && nearSolid8(i))) return false; want[i] = c; touched[i] = 1; return true; };
+      const cls = i => (want[i] >= 0 ? want[i] : cg[i]);
+      const wet = i => cls(i) === K.water;
+
+      /** мост от берега a по оси (sx, sy): {span, end, score} или null. Мост как у автора: 3 клетки поперёк, по всей ширине воды;
+       *  по бокам - вода на всю его длину, у концов боковых пролётов - суша. score - сколько клеток придётся переделать */
+      function bridgeAt(a, sx, sy) {
+        if (!inner(a.x, a.y) || wet(a.y * 64 + a.x) || fixedCls(cls(a.y * 64 + a.x))) return null;
+        let x = a.x, y = a.y; const span = [];
+        for (let n = 0; n < BRIDGE_MAX + 1; n++) { x += sx; y += sy; if (!inner(x, y) || !wet(y * 64 + x)) break; span.push({ x, y }); }
+        if (span.length > BRIDGE_MAX) return null;
+        if (!span.length || !inner(x, y) || wet(y * 64 + x) || fixedCls(cls(y * 64 + x))) return null;
+        const px = sy !== 0 ? 1 : 0, py = sx !== 0 ? 1 : 0;      // поперёк моста
+        let score = 0;
+        for (const q of span) for (let t = -2; t <= 2; t++) {
+          const xx = q.x + px * t, yy = q.y + py * t; if (!inner(xx, yy)) return null;
+          const c = cls(yy * 64 + xx); if (fixedCls(c) || c === K.bridge) return null;
+          if (c !== K.water) score += Math.abs(t) <= 1 ? 3 : 1;
+        }
+        for (const q of [a, { x, y }]) for (const t of [-2, -1, 1, 2]) { const xx = q.x + px * t, yy = q.y + py * t; if (!inner(xx, yy)) return null; const c = cls(yy * 64 + xx); if (c === K.bridge) return null; if (c === K.water) score += 2; }
+        return { span, end: { x, y }, px, py, score };
+      }
+      /** дорога по пути; через воду - прямой мост (на лучшем месте рядом). Возвращает false, если какой-то мост не встал */
+      function roadPath(path) {
+        let k = 0, skipped = 0, failed = false;
+        while (k < path.length) {
+          const p = path[k], i = p.y * 64 + p.x;
+          if (cls(i) === K.bridge) { k++; continue; }                 // по готовому мосту
+          if (!wet(i)) { if (!setc(p.x, p.y, K.road)) skipped++; k++; continue; }
+          let e = k; while (e < path.length && wet(path[e].y * 64 + path[e].x)) e++;
+          const a = k > 0 ? path[k - 1] : p, b = e < path.length ? path[e] : path[path.length - 1];
+          if (wet(a.y * 64 + a.x)) { notes.push(tr('мост в {x},{y} не построить: штрих начат в воде', { x: p.x, y: p.y })); failed = true; k = e; continue; }
+          const key = a.y * 64 + a.x;
+          // ось: главная ось пути через воду, потом другая; место - сдвиг вдоль берега до 3 клеток, где переделок меньше
+          let best = null;
+          const h0 = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+          if (!noBridge.has(key)) for (const hor of [h0, !h0]) {
+            const sx = hor ? Math.sign(b.x - a.x) || Math.sign(p.x - a.x) || 1 : 0, sy = hor ? 0 : Math.sign(b.y - a.y) || Math.sign(p.y - a.y) || 1;
+            for (const o of [0, -1, 1, -2, 2, -3, 3]) {
+              const s0 = { x: a.x + (sy ? o : 0), y: a.y + (sx ? o : 0) };
+              // от a до s0 вдоль берега - по суше
+              let ok = true; for (let q = 1; q <= Math.abs(o) && ok; q++) { const xx = a.x + (sy ? Math.sign(o) * q : 0), yy = a.y + (sx ? Math.sign(o) * q : 0); const c = cls(yy * 64 + xx); if (!inner(xx, yy) || c === K.water || fixedCls(c)) ok = false; }
+              if (!ok) continue;
+              const B = bridgeAt(s0, sx, sy); if (!B) continue;
+              const sc = B.score * 4 + Math.abs(o) + (hor === h0 ? 0 : 6);
+              if (!best || sc < best.sc) best = Object.assign(B, { sc, s0, o, sx, sy });
+            }
+            if (best && best.score === 0) break;
+          }
+          if (!best) {
+            notes.push(noBridge.has(key) ? tr('мост у {x},{y} не сошёлся с тайлами автора - дорога обрывается у воды', { x: a.x, y: a.y })
+              : tr('мост в {x},{y} не построить: нет берега напротив (или мост длиннее {n} клеток)', { x: a.x, y: a.y, n: BRIDGE_MAX }));
+            failed = true; k = e; continue;
+          }
+          // дорога до места моста, мост, дальше - от дальнего берега
+          const cells = [];
+          for (let q = 1; q <= Math.abs(best.o); q++) { const xx = a.x + (best.sy ? Math.sign(best.o) * q : 0), yy = a.y + (best.sx ? Math.sign(best.o) * q : 0); setc(xx, yy, K.road); }
+          setc(best.s0.x, best.s0.y, K.road);
+          for (const q of best.span) for (let t = -2; t <= 2; t++) { const xx = q.x + best.px * t, yy = q.y + best.py * t; setc(xx, yy, Math.abs(t) <= 1 ? K.bridge : K.water); cells.push(yy * 64 + xx); }
+          // берег у концов моста ровный на 5 клеток: как у автора, боковые пролёты кончаются там же, где мост
+          for (const q of [best.s0, best.end]) for (const t of [-2, -1, 1, 2]) { const xx = q.x + best.px * t, yy = q.y + best.py * t; if (inner(xx, yy) && wet(yy * 64 + xx)) setc(xx, yy, BG); cells.push(yy * 64 + xx); }
+          bridges.push({ key, cells });
+          path.splice(k, path.length - k, ...path4([best.end].concat(path.slice(e))));
+        }
+        if (skipped) notes.push(tr('дорога не идёт сквозь здания, ограды, площадки баз и рамку карты: пропущено клеток {n}', { n: skipped }));
+        return !failed;
+      }
+
+      if (op.kind === 'paint') {
+        // покрытие: полоса шириной w; стирание - клетки этого класса в полосе становятся фоном
+        const w = clamp(op.width | 0 || 3, 1, 9), lo = -((w - 1) >> 1), hi = lo + w - 1, c = K[op.cls];
+        for (const p of path4(pts)) for (let dy = lo; dy <= hi; dy++) for (let dx = lo; dx <= hi; dx++) {
+          const x = p.x + dx, y = p.y + dy; if (!inner(x, y)) continue;
+          const i = y * 64 + x;
+          if (cg[i] === K.bridge || cg[i] === K.water && !op.erase) continue;           // воду и мосты покрытие не заливает
+          if (op.erase) { if (cg[i] === c && want[i] < 0) setc(x, y, BG); }
+          else if (cg[i] !== c) setc(x, y, c);
+        }
+      } else if (op.kind === 'area') {
+        const x0 = Math.max(1, Math.min(pts[0].x, pts[pts.length - 1].x)), x1 = Math.min(62, Math.max(pts[0].x, pts[pts.length - 1].x));
+        const y0 = Math.max(1, Math.min(pts[0].y, pts[pts.length - 1].y)), y1 = Math.min(62, Math.max(pts[0].y, pts[pts.length - 1].y));
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) touched[y * 64 + x] = 1;
+      } else if (op.kind === 'road') {
+        const path = path4(pts);
+        if (op.erase) {
+          for (const p of path) {
+            const i = p.y * 64 + p.x;
+            if (cg[i] === K.road) setc(p.x, p.y, BG);
+            else if (cg[i] === K.bridge) {                   // мост целиком становится водой
+              const seen = new Uint8Array(4096), st = [i]; seen[i] = 1;
+              while (st.length) { const j = st.pop(); setc(j & 63, j >> 6, K.water); for (let d = 0; d < 4; d++) { const x = (j & 63) + DX[d], y = (j >> 6) + DY[d]; if (!inner(x, y)) continue; const q = y * 64 + x; if (!seen[q] && cg[q] === K.bridge) { seen[q] = 1; st.push(q); } } }
+            }
+          }
+        } else roadPath(path);
+      } else if (op.kind === 'river') {
+        const w = clamp(op.width | 0 || 3, op.erase ? 1 : 3, 9), lo = -((w - 1) >> 1), hi = lo + w - 1;
+        const path = path4(pts), band = new Uint8Array(4096);
+        for (const p of path) for (let dy = lo; dy <= hi; dy++) for (let dx = lo; dx <= hi; dx++) { const x = p.x + dx, y = p.y + dy; if (inner(x, y)) band[y * 64 + x] = 1; }
+        if (op.erase) {
+          for (let i = 0; i < 4096; i++) if (band[i] && cg[i] === K.water) setc(i & 63, i >> 6, BG);
+          // мосты, задетые стиранием, становятся дорогой (средняя полоса) и травой
+          const seen = new Uint8Array(4096);
+          for (let i0 = 0; i0 < 4096; i0++) if (cg[i0] === K.bridge && !seen[i0]) {
+            const comp = [i0]; seen[i0] = 1; let hit = false, x0 = 64, x1 = -1, y0 = 64, y1 = -1;
+            for (let q = 0; q < comp.length; q++) {
+              const j = comp[q], x = j & 63, y = j >> 6; hit = hit || !!band[j];
+              x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+              for (let d = 0; d < 4; d++) { const xx = x + DX[d], yy = y + DY[d]; if (!inner(xx, yy)) continue; const n = yy * 64 + xx; if (!seen[n] && cg[n] === K.bridge) { seen[n] = 1; comp.push(n); } }
+            }
+            if (!hit) continue;
+            const vert = x1 - x0 <= y1 - y0, mid = vert ? (x0 + x1) >> 1 : (y0 + y1) >> 1;
+            for (const j of comp) setc(j & 63, j >> 6, (vert ? (j & 63) : (j >> 6)) === mid ? K.road : BG);
+          }
+        } else {
+          // у зданий, оград и готовых мостов оставляем клетку суши: берег вплотную к ним у автора не встречается
+          const nearSolid = i => { const x = i & 63, y = i >> 6; for (let d = 0; d < 8; d++) { const xx = x + [0, 1, 1, 1, 0, -1, -1, -1][d], yy = y + [-1, -1, 0, 1, 1, 1, 0, -1][d]; if (xx >= 0 && yy >= 0 && xx < 64 && yy < 64 && (fixedCls(cg[yy * 64 + xx]) || cg[yy * 64 + xx] === K.bridge) && cg[yy * 64 + xx] !== K.border) return true; } return false; };
+          const wasRoad = new Uint8Array(4096);
+          for (let i = 0; i < 4096; i++) if (band[i]) {
+            if (cg[i] === K.bridge || fixedCls(cg[i]) || nearSolid(i)) continue;
+            if (cg[i] === K.road) wasRoad[i] = 1;
+            setc(i & 63, i >> 6, K.water);
+          }
+          // вода уже 3 клеток у автора не бывает: новая вода, не входящая ни в один квадрат воды 3x3, не ставится
+          for (let it = 0; it < 3; it++) {
+            let drop = 0;
+            for (let i = 0; i < 4096; i++) if (want[i] === K.water && cg[i] !== K.water) {
+              const x = i & 63, y = i >> 6; let ok = false;
+              for (let oy = -2; oy <= 0 && !ok; oy++) for (let ox = -2; ox <= 0 && !ok; ox++) {
+                let all = true;
+                for (let yy = y + oy; yy <= y + oy + 2 && all; yy++) for (let xx = x + ox; xx <= x + ox + 2; xx++) if (xx < 0 || yy < 0 || xx > 63 || yy > 63 || !wet(yy * 64 + xx)) { all = false; break; }
+                ok = all;
+              }
+              if (!ok) { want[i] = -1; wasRoad[i] = 0; drop++; }
+            }
+            if (!drop) break;
+          }
+          // река перерезала дорогу: концы дороги на берегах соединяются заново, через воду - прямым мостом
+          const seen = new Uint8Array(4096); let nb = 0, cut = 0;
+          for (let i0 = 0; i0 < 4096; i0++) if (wasRoad[i0] && !seen[i0]) {
+            const comp = [i0], ends = []; seen[i0] = 1;
+            for (let q = 0; q < comp.length; q++) {
+              const j = comp[q], x = j & 63, y = j >> 6;
+              for (let d = 0; d < 4; d++) {
+                const xx = x + DX[d], yy = y + DY[d]; if (!inner(xx, yy)) continue;
+                const n = yy * 64 + xx;
+                if (wasRoad[n]) { if (!seen[n]) { seen[n] = 1; comp.push(n); } }
+                else if (cls(n) === K.road || cls(n) === K.bridge) ends.push(n);
+              }
+            }
+            // концы дороги по берегам: сторона - по направлению штриха у ближайшей его клетки
+            const dirAt = n => {
+              const x = n & 63, y = n >> 6; let bk = 0, bd = 1e9;
+              for (let q = 0; q < path.length; q++) { const d2 = (path[q].x - x) ** 2 + (path[q].y - y) ** 2; if (d2 < bd) { bd = d2; bk = q; } }
+              const p0 = path[Math.max(0, bk - 2)], p1 = path[Math.min(path.length - 1, bk + 2)];
+              return { q0: path[bk], dx: p1.x - p0.x, dy: p1.y - p0.y };
+            };
+            const sideOf = n => { const { q0, dx, dy } = dirAt(n); return Math.sign(dx * ((n >> 6) - q0.y) - dy * ((n & 63) - q0.x)); };
+            // мост - только поперёк реки: путь A->B почти перпендикулярен руслу
+            const across = (A, B) => { const { dx, dy } = dirAt(A), ax = (B & 63) - (A & 63), ay = (B >> 6) - (A >> 6);
+              return Math.abs(ax * dx + ay * dy) <= 0.6 * Math.hypot(ax, ay) * Math.hypot(dx, dy); };
+            const uniq = [...new Set(ends)], L1 = uniq.filter(n => sideOf(n) > 0), L2 = uniq.filter(n => sideOf(n) < 0), used = new Set();
+            let made = 0;
+            for (const A of L1) {
+              let B = -1, bd = 1e9;
+              for (const n of L2) if (!used.has(n) && across(A, n)) { const dd = Math.abs((A & 63) - (n & 63)) + Math.abs((A >> 6) - (n >> 6)); if (dd < bd) { bd = dd; B = n; } }
+              if (B < 0 || bd > w + 6) continue;
+              used.add(B);
+              if (roadPath(path4([{ x: A & 63, y: A >> 6 }, { x: B & 63, y: B >> 6 }]))) { nb++; made++; } else cut++;
+            }
+            if (!made) cut++;
+          }
+          if (nb) notes.push(tr('река пересекла дорогу: поставлено мостов {n}', { n: nb }));
+          if (cut) notes.push(tr('река перерезала дорогу, мост не встал: {n} - проведите дорогу через реку кистью дороги', { n: cut }));
+        }
+      }
+
+      // жёсткие клетки: класс штриха; мост (2) не уступает никогда, остальные - только после многих неудач рядом
+      const hard = new Uint8Array(4096); for (let i = 0; i < 4096; i++) if (want[i] >= 0) hard[i] = want[i] === K.bridge ? 2 : 1;
+      if (op.kind === 'area') for (let i = 0; i < 4096; i++) if (touched[i]) hard[i] = 1;          // перерисовка: класс клеток прежний
+      // просека: у автора дорога и вода отделены от леса и скал полосой травы - соседние клетки леса становятся фоном
+      if (op.kind !== 'area' && !op.erase) for (let i = 0; i < 4096; i++) if (want[i] === K.road || want[i] === K.water || want[i] === K.bridge) {
+        const x = i & 63, y = i >> 6;
+        for (let yy = y - 1; yy <= y + 1; yy++) for (let xx = x - 1; xx <= x + 1; xx++) {
+          if (!inner(xx, yy)) continue; const j = yy * 64 + xx;
+          if (want[j] < 0 && K.forest !== undefined && cg[j] === K.forest) { want[j] = BG; touched[j] = 1; }
+        }
+      }
+      // соседи, которые у автора не стоят рядом с новым классом (лес у воды и т. п.), становятся фоном
+      for (let pass = 0; pass < 2; pass++) for (let i = 0; i < 4096; i++) if (want[i] >= 0) {
+        const x = i & 63, y = i >> 6, c = want[i];
+        for (let d = 0; d < 4; d++) {
+          const xx = x + DX[d], yy = y + DY[d]; if (!inner(xx, yy)) continue;
+          const j = yy * 64 + xx; if (hard[j] || want[j] >= 0 || fixedCls(cg[j]) || cg[j] === K.bridge) continue;
+          if (!cc[d][c * NC + cg[j]] && cc[d][c * NC + BG]) { want[j] = BG; touched[j] = 1; }
+        }
+      }
+      for (let i = 0; i < 4096; i++) if (want[i] >= 0) cg[i] = want[i];
+      // стороны тайлов: сосед того же класса - край (берег) с этой стороны запрещён; сосед-фон (трава, дорога) - запрещена середина.
+      // Редкие соседи (мост, лес, ограда) ничего не запрещают: у автора их мало, статистика сторон по ним неточна
+      const clsMax = new Float64Array(NC); for (let k = 0; k < M.K; k++) clsMax[M.cls[k]] = Math.max(clsMax[M.cls[k]], M.freq[k]);
+      const W = M.W, allow = new Int32Array(4096 * W), hasAllow = new Uint8Array(4096), allow2 = new Int32Array(4096 * W), allow2Has = new Uint8Array(4096);
+      for (let y = 1; y < 63; y++) for (let x = 1; x < 63; x++) {
+        const i = y * 64 + x, c = cg[i]; let oth = 0, sam = 0;
+        for (let d = 0; d < 4; d++) { const n = cg[(y + DY[d]) * 64 + x + DX[d]]; if (n === c) sam |= 1 << d; else if (n === BG || n === K.road) oth |= 1 << d; }
+        let any = 0;
+        // в клетках «Покрытия» - только частые у автора тайлы класса (редкие авто-размеченные выглядят чужими)
+        const rare = op.kind === 'paint' && want[i] >= 0 ? clsMax[c] * 0.02 : 0;
+        for (let k = 0; k < M.K; k++) if (M.cls[k] === c && M.freq[k] >= rare && !(side[k][0] & sam) && !(side[k][1] & oth)) { allow[i * W + (k >> 5)] |= 1 << (k & 31); any = 1; }
+        hasAllow[i] = any;
+      }
+      // текстура новой воды - как у воды, к которой она примыкает (иначе - по зерну)
+      if (nf > 1) {
+        const votes = new Array(nf).fill(0);
+        for (let i = 0; i < 4096; i++) if (touched[i]) {
+          const x = i & 63, y = i >> 6;
+          for (let yy = Math.max(0, y - 3); yy <= Math.min(63, y + 3); yy++) for (let xx = Math.max(0, x - 3); xx <= Math.min(63, x + 3); xx++) {
+            const k = known[yy * 64 + xx]; if (k >= 0 && fam[k] >= 0 && want[yy * 64 + xx] < 0) votes[fam[k]]++;
+          }
+        }
+        let f = 0; for (let q = 1; q < nf; q++) if (votes[q] > votes[f]) f = q;
+        if (!votes[f]) f = hash32(op.seed >>> 0, 77) % nf;
+        for (let i = 0; i < 4096; i++) if (cg[i] === K.water && touched[i]) {
+          for (let k = 0; k < M.K; k++) if (M.cls[k] === K.water && !(fam[k] >= 0 && fam[k] !== f)) allow2[i * W + (k >> 5)] |= 1 << (k & 31);
+          allow2Has[i] = 1;
+          if (!hasAllow[i]) continue;
+          let any = 0;
+          for (let k = 0; k < M.K; k++) if (fam[k] >= 0 && fam[k] !== f) allow[i * W + (k >> 5)] &= ~(1 << (k & 31));
+          for (let w = 0; w < W; w++) any |= allow[i * W + w];
+          if (!any) hasAllow[i] = 0;
+        }
+      }
+      return { cg, want, touched, hard, allow, hasAllow, allow2, allow2Has, notes, bridges };
+    }
+
+    /** перебор тайлов в полосе вокруг штриха: R = 2, 4, 6 клеток. hard - жёсткие клетки (null - класс штриха может уступить везде) */
+    function solve(P, hard, trace) {
+      const soft = hard !== P.hard;
+      const seed = (op.seed >>> 0) || 1;
+      for (let grow = 0; grow < 3; grow++) {
+        const R = 2 + grow * 2, region = new Uint8Array(4096);
+        for (let i = 0; i < 4096; i++) if (P.touched[i]) {
+          const x = i & 63, y = i >> 6;
+          for (let yy = Math.max(1, y - R); yy <= Math.min(62, y + R); yy++) for (let xx = Math.max(1, x - R); xx <= Math.min(62, x + R); xx++) region[yy * 64 + xx] = 1;
+        }
+        const fixed = new Int16Array(4096);
+        for (let i = 0; i < 4096; i++) {
+          // не трогаем: рамку, здания; мосты, ограды и площадки баз, которых штрих не касается
+          const c = P.cg[i], keep = P.want[i] < 0 && (c === K.bridge || fixedCls(c));
+          const free = region[i] && c !== K.border && c !== K.building && !keep && !(oddPair[i] && P.want[i] < 0) && !(land === 3 && i === 0);
+          fixed[i] = free ? -1 : (known[i] >= 0 ? known[i] : -2);
+        }
+        for (let at = 0; at < 2; at++) {
+          const rng = RNG(hash32(seed, (soft ? 64 : 0) + grow * 16 + at));
+          if (op.dump) op.dump.push({ cg: Uint8Array.from(P.cg), fixed: Int16Array.from(fixed), hard: P.hard, allow: P.allow, hasAllow: P.hasAllow });
+          const res = wfc(M, P.cg, fixed, rng, { trace, local: true, hard, allow: P.allow, hasAllow: P.hasAllow, allow2: P.allow2, allow2Has: P.allow2Has,
+            borderClass: K.border, maxResets: 120, noRelax: ['building', 'exit', 'door', 'border', 'bridge'] });
+          if (res) return { res, fixed, R };
+        }
+      }
+      return null;
+    }
+
+    // план; если тайлы автора не сходятся, сначала убираем мешающие мосты (по месту противоречий), затем ослабляем класс штриха
+    const noBridge = new Set();
+    let P = null, S = null, trace = [];
+    for (let round = 0; round < 4 && !S; round++) {
+      P = plan(noBridge);
+      if (round === 0) { let any = false; for (let i = 0; i < 4096; i++) if (P.touched[i]) { any = true; break; } if (!any) return { error: tr('штрих ничего не меняет') }; }
+      trace = [];
+      S = solve(P, P.hard, trace);
+      if (op.trace) op.trace.push(...trace);
+      if (S || !P.bridges.length) break;
+      let dropped = 0;
+      for (const b of P.bridges) if (!noBridge.has(b.key) && trace.some(c => b.cells.some(i => Math.abs((i & 63) - (c & 63)) <= 2 && Math.abs((i >> 6) - (c >> 6)) <= 2))) { noBridge.add(b.key); dropped++; }
+      if (!dropped) break;
+    }
+    // уступать классом может только место, где тайлы не сошлись (3 клетки вокруг), потом - чем дальше, тем шире, и наконец весь штрих
+    for (const rad of [3, 6]) {
+      if (S) break;
+      const h = Uint8Array.from(P.hard);
+      for (const c of trace) { const cx = c & 63, cy = c >> 6; for (let y = Math.max(0, cy - rad); y <= Math.min(63, cy + rad); y++) for (let x = Math.max(0, cx - rad); x <= Math.min(63, cx + rad); x++) if (h[y * 64 + x] === 1) h[y * 64 + x] = 0; }
+      const t2 = []; S = solve(P, h, t2); trace = trace.concat(t2);
+    }
+    if (!S) S = solve(P, null, null);
+    if (!S) { const P2 = plan(noBridge, true); S = solve(P2, P2.hard, []) || solve(P2, null, null); if (S) { P = P2; P.notes.push(tr('у зданий и оград штрих не рисуется: там тайлы автора не сошлись')); } }
+    if (!S) return { error: tr('тайлы автора здесь не сходятся: попробуйте провести штрих иначе') };
+    const { res, fixed, R } = S, notes = P.notes, out = new Uint8Array(map);
+    let changed = 0, lost = 0;
+    for (let i = 0; i < 4096; i++) if (fixed[i] === -1) {
+      const t = M.tiles[res.tiles[i]];
+      if (t === G.B) continue;
+      if (P.want[i] >= 0 && M.cls[res.tiles[i]] !== P.want[i]) lost++;
+      if (out[i] !== t) { out[i] = t; changed++; }
+    }
+    if (lost) notes.push(tr('клеток штриха остались прежними (тайлы автора там не сошлись): {n}', { n: lost }));
+    // герои на ставших непроходимыми клетках
+    const wetH = lv.heroes.filter(h => h.x < 64 && h.y < 64 && !(out[h.y * 64 + h.x] >= 1 && out[h.y * 64 + h.x] < GO_MAX) && map[h.y * 64 + h.x] >= 1 && map[h.y * 64 + h.x] < GO_MAX);
+    if (wetH.length) notes.push(tr('героев теперь на непроходимых клетках: {n}', { n: wetH.length }));
+    return { map: out, changed, region: R, resets: res.resets, relaxed: res.relaxed, lost, notes };
+  }
+
   /**
    * generate(core, G, lib, params) -> {lv, report} или {error, report}
    *   core - BRCore, G - BR_GEN (data/gendata.js), lib - core.library() (сценарии с байтами)
@@ -851,5 +1247,5 @@
   }
 
   return { setTranslator, describeScenario, RNG, hash32, valueNoise, fbm, buildModel, wfc, unknownPairs, bfs, cheapestPath, openMask, dropSmall,
-    TYPES, DEFAULTS, scenariosFor, generate, modelFor, planBattle, planDungeon };
+    TYPES, DEFAULTS, scenariosFor, generate, modelFor, planBattle, planDungeon, brushStroke, path4, BRUSH_KINDS, RIVER_W, PAINT_CLASSES };
 });

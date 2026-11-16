@@ -34,6 +34,10 @@
   let lv = null, undo = [], redo = [], dirty = false;
   let tool = 'brush', mapTool = 'brush', curTile = 1, curBuild = 88, heroType = 4, heroSide = 0, selHero = -1;
   let view = { z: 1, ox: 0, oy: 0 }, hover = null, drag = null, spaceDown = false, issues = [], flash = null;
+  let lastBrush = null, brushSeed = 1;      // умные кисти: последний штрих (для «Ещё вариант»)
+  const SMART = ['road', 'river', 'paint', 'regen'];
+  // подписи покрытий (классы gen.js PAINT_CLASSES); на ландшафте 2 класс «лес» - скальные гряды
+  const PAINT_NAME = { forest: 'лес', rocks2: 'скалы', paveh: 'площадь людей', pavek: 'площадь кунгов', rock: 'скала', wall: 'стена', cave: 'пещера (светлый пол)', floor: 'пол зала (серый)' };
   const opt = { grid: false, heroes: true, pass: false, issues: true, mono: false };
 
   // ------------------------------------------------------------------ графика
@@ -208,7 +212,20 @@
         g.strokeStyle = '#ffd23a'; g.lineWidth = 2 * lw; g.strokeRect(hover.x * 16, hover.y * 16, 16, 16);
       }
     }
-    if (drag && drag.kind === 'rect') {
+    const brushW = () => tool === 'river' ? +$('riverW').value : tool === 'paint' ? +$('paintW').value : 1;
+    if (drag && drag.kind === 'stroke' && window.BRGen) {
+      const w = brushW(), lo = -((w - 1) >> 1);
+      g.fillStyle = drag.erase ? 'rgba(255,60,60,.45)' : tool === 'river' ? 'rgba(70,150,255,.45)' : tool === 'paint' ? 'rgba(90,220,120,.45)' : 'rgba(255,210,58,.55)';
+      const seen = new Set();
+      for (const p of window.BRGen.path4(drag.pts)) for (let dy = 0; dy < w; dy++) for (let dx = 0; dx < w; dx++) {
+        const k = (p.x + lo + dx) + ',' + (p.y + lo + dy); if (seen.has(k)) continue; seen.add(k);
+        g.fillRect((p.x + lo + dx) * 16, (p.y + lo + dy) * 16, 16, 16);
+      }
+    } else if (hover && hover.in && (tool === 'road' || tool === 'river' || tool === 'paint')) {
+      const w = brushW(), lo = -((w - 1) >> 1);
+      g.strokeStyle = '#ffd23a'; g.lineWidth = 2 * lw; g.strokeRect((hover.x + lo) * 16, (hover.y + lo) * 16, w * 16, w * 16);
+    }
+    if (drag && (drag.kind === 'rect' || drag.kind === 'regen')) {
       const [x0, y0, x1, y1] = rectOf(drag);
       g.fillStyle = 'rgba(255,210,58,.25)'; g.fillRect(x0 * 16, y0 * 16, (x1 - x0 + 1) * 16, (y1 - y0 + 1) * 16);
       g.strokeStyle = '#ffd23a'; g.lineWidth = 2 * lw; g.strokeRect(x0 * 16, y0 * 16, (x1 - x0 + 1) * 16, (y1 - y0 + 1) * 16);
@@ -220,10 +237,10 @@
   function heroAt(x, y) { if (!lv || lv.kind !== 'data') return null; for (let k = lv.heroes.length - 1; k >= 0; k--) if (lv.heroes[k].x === x && lv.heroes[k].y === y) return k + 1; return null; }
 
   // ------------------------------------------------------------------ правки, отмена
-  function snapshot() { undo.push(C.cloneLevel(lv)); if (undo.length > 200) undo.shift(); redo = []; setDirty(true); }
+  function snapshot() { undo.push(C.cloneLevel(lv)); if (undo.length > 200) undo.shift(); redo = []; setDirty(true); lastBrush = null; }
   function setDirty(v) { dirty = v; $('dirty').textContent = v ? '● ' + t('есть несохранённые правки') : ''; }
-  function doUndo() { if (!undo.length) return; redo.push(C.cloneLevel(lv)); lv = undo.pop(); setDirty(true); refreshAll(); }
-  function doRedo() { if (!redo.length) return; undo.push(C.cloneLevel(lv)); lv = redo.pop(); setDirty(true); refreshAll(); }
+  function doUndo() { if (!undo.length) return; lastBrush = null; redo.push(C.cloneLevel(lv)); lv = undo.pop(); setDirty(true); refreshAll(); }
+  function doRedo() { if (!redo.length) return; lastBrush = null; undo.push(C.cloneLevel(lv)); lv = redo.pop(); setDirty(true); refreshAll(); }
   function editable() { return lv && lv.kind === 'data'; }
 
   function paintAt(x, y) {
@@ -245,6 +262,12 @@
     const c = cellAt(e);
     if (e.button === 1 || tool === 'hand' || spaceDown || !editable()) { drag = { kind: 'pan', mx: c.mx, my: c.my, ox: view.ox, oy: view.oy }; e.preventDefault(); return; }
     if (!c.in) return;
+    if (SMART.includes(tool) && (e.button === 0 || (e.button === 2 && tool !== 'regen'))) {
+      if (!smartReady()) return;
+      drag = tool === 'regen' ? { kind: 'regen', x0: c.x, y0: c.y, x1: c.x, y1: c.y } : { kind: 'stroke', erase: e.button === 2, pts: [{ x: c.x, y: c.y }] };
+      if (tool === 'paint' && !$('paintCls').value) { drag = null; return; }
+      scheduleDraw(); return;
+    }
     if (e.button === 2) {           // ПКМ: взять тайл / удалить героя
       if (tool === 'hero') { const k = heroAt(c.x, c.y); if (k) { snapshot(); lv.heroes.splice(k - 1, 1); selHero = -1; changed('heroes'); } return; }
       const b = C.buildingAt(lv.map, c.x, c.y);
@@ -278,7 +301,8 @@
     }
     if (!drag || !c.in) return;
     if (drag.kind === 'paint' && (c.x !== drag.x || c.y !== drag.y)) { lineCells(drag.x, drag.y, c.x, c.y, paintAt); drag.x = c.x; drag.y = c.y; changed('map', true); }
-    else if (drag.kind === 'rect') { drag.x1 = c.x; drag.y1 = c.y; scheduleDraw(); }
+    else if (drag.kind === 'rect' || drag.kind === 'regen') { drag.x1 = c.x; drag.y1 = c.y; scheduleDraw(); }
+    else if (drag.kind === 'stroke') { const l = drag.pts[drag.pts.length - 1]; if (l.x !== c.x || l.y !== c.y) { drag.pts.push({ x: c.x, y: c.y }); scheduleDraw(); } }
     else if (drag.kind === 'hero') {
       const h = lv.heroes[drag.k];
       if (h.x !== c.x || h.y !== c.y) { if (!drag.moved) { snapshot(); drag.moved = true; } h.x = c.x; h.y = c.y; changed('heroes', true); }
@@ -293,7 +317,10 @@
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) C.paintTile(lv.map, x, y, curTile, 1);
       redrawMap(x0 - 2, y0 - 2, x1 + 2, y1 + 2);
       changed('map');
-    } else if (d.kind === 'paint' || (d.kind === 'hero' && d.moved)) changed(d.kind === 'paint' ? 'map' : 'heroes');
+    } else if (d.kind === 'stroke' && tool === 'paint') applyBrush({ kind: 'paint', cls: $('paintCls').value, erase: d.erase, points: d.pts, width: +$('paintW').value });
+    else if (d.kind === 'stroke') applyBrush({ kind: tool === 'river' ? 'river' : 'road', erase: d.erase, points: d.pts, width: +$('riverW').value });
+    else if (d.kind === 'regen') applyBrush({ kind: 'area', points: [{ x: d.x0, y: d.y0 }, { x: d.x1, y: d.y1 }] });
+    else if (d.kind === 'paint' || (d.kind === 'hero' && d.moved)) changed(d.kind === 'paint' ? 'map' : 'heroes');
     scheduleDraw();
   });
   cv.addEventListener('mouseleave', () => { if (!drag) { hover = null; scheduleDraw(); } });
@@ -321,8 +348,8 @@
     if (inField || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.code === 'Space') { spaceDown = true; e.preventDefault(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selHero >= 0 && editable()) { snapshot(); lv.heroes.splice(selHero, 1); selHero = -1; changed('heroes'); return; }
-    const k = { KeyB: 'brush', KeyR: 'rect', KeyU: 'building', KeyE: 'erase', KeyH: 'hand' }[e.code];
-    if (k) { setTool(k); return; }
+    const k = { KeyB: 'brush', KeyR: 'rect', KeyU: 'building', KeyE: 'erase', KeyH: 'hand', KeyD: 'road', KeyW: 'river', KeyF: 'paint', KeyG: 'regen' }[e.code];
+    if (k) { if ((k === 'road' || k === 'river') && landNo() === 3) { status(t('В подземелье нет дорог и рек: рисуйте скалы, стены и пещеры кистью «Покрытие».')); return; } setTool(k); return; }
     if (e.key === '+' || e.key === '=') zoomAt(1.25, cv.clientWidth / 2, cv.clientHeight / 2);
     if (e.key === '-') zoomAt(0.8, cv.clientWidth / 2, cv.clientHeight / 2);
     if (e.key === '0') fit();
@@ -342,6 +369,11 @@
     tool = t; if (t !== 'hero') mapTool = t;
     document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
     cv.style.cursor = t === 'hand' ? 'grab' : 'crosshair';
+    $('smartOpts').hidden = !SMART.includes(t); $('rwRow').hidden = t !== 'river'; $('pcRow').hidden = $('pwRow').hidden = t !== 'paint';
+    $('smartHint').textContent = t === 'road' ? I18N.t('Ведите ЛКМ: дорога пойдёт по клеткам штриха, повороты и развилки подберутся по картам автора; через воду встанет прямой мост. ПКМ - стереть дорогу (мост станет водой).')
+      : t === 'river' ? I18N.t('Ведите ЛКМ: вода ляжет полосой выбранной ширины, берега подберутся сами; через дорогу встанет мост. Уже 3 клеток реки у автора не бывает. ПКМ - стереть воду.')
+      : t === 'paint' ? I18N.t('Ведите ЛКМ: выбранное покрытие ляжет полосой, края с соседями подберутся по картам автора. Воду и мосты покрытие не заливает, здания и ограды не трогает. ПКМ - стереть это покрытие (станет травой, в подземелье - светлым полом).')
+      : t === 'regen' ? I18N.t('Протяните прямоугольник: тайлы внутри подберутся заново по картам автора, а трава останется травой, вода водой и т. д.') : '';
     refreshPalettes(); scheduleDraw();
   }
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
@@ -360,6 +392,13 @@
     const key = landNo() + ':' + landColors();
     if (force || key !== palKey) {
       palKey = key;
+      // кисти по ландшафту: в подземелье нет дорог и рек, у «Покрытия» свой набор
+      const dun = landNo() === 3;
+      document.querySelectorAll('[data-tool="road"], [data-tool="river"]').forEach(b => { b.hidden = dun; });
+      if (dun && (tool === 'road' || tool === 'river')) setTimeout(() => setTool('paint'));
+      const pc = $('paintCls'), was = pc.value, plist = (window.BRGen ? window.BRGen.PAINT_CLASSES : { outdoor: [], dungeon: [] })[dun ? 'dungeon' : 'outdoor'];
+      pc.innerHTML = plist.map(c => `<option value="${c}">${t(PAINT_NAME[c === 'forest' && landNo() === 2 ? 'rocks2' : c])}</option>`).join('');
+      if (plist.includes(was)) pc.value = was;
       const pt = $('palTiles'); pt.innerHTML = '';
       for (let ti = 0; ti < 120; ti++) {
         const c = document.createElement('canvas'); c.width = c.height = 32; c.title = `${t('тайл')} ${ti}` + (ti === 0 ? ' - ' + t('граница') : ti === 1 ? ' - ' + t('фон') : '') + ' (' + (ti >= 1 && ti < C.GO_MAX ? t('проходимо') : t('непроходимо')) + ')';
@@ -785,6 +824,33 @@
   // ------------------------------------------------------------------ генератор заготовок (js/gen.js + data/gendata.js)
   const GEN = window.BR_GEN, Gen = window.BRGen;
   if (Gen) Gen.setTranslator(t);
+
+  // ------------------------------------------------------------------ умные кисти: дорога, река, перерисовать (Gen.brushStroke)
+  function smartReady() {
+    if (!Gen || !GEN) { status(t('Умные кисти недоступны: не загружены js/gen.js и data/gendata.js')); return false; }
+    if (landNo() === 3 && (tool === 'road' || tool === 'river')) { status(t('В подземелье нет дорог и рек: рисуйте скалы, стены и пещеры кистью «Покрытие».')); return false; }
+    return true;
+  }
+  const BRUSH_NAME = { road: 'Дорога', river: 'Река', paint: 'Покрытие', area: 'Перерисовать' };
+  function applyBrush(op, again) {
+    const base = again ? undo[undo.length - 1] : lv;
+    op.seed = again ? op.seed + 1 : ++brushSeed;
+    const t0 = performance.now(); let r;
+    try { r = Gen.brushStroke(C, GEN, base, op); } catch (err) { console.error(err); r = { error: err.message }; }
+    const ms = Math.round(performance.now() - t0), esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const what = t(BRUSH_NAME[op.kind]) + (op.erase ? ' (' + t('стереть') + ')' : '');
+    if (r.error) { status(`<span class="bad">${esc(what)}: ${esc(r.error)}</span>`); scheduleDraw(); return; }
+    if (!again) snapshot();
+    lv.map = r.map;
+    lastBrush = { op, lv };
+    redrawMap(); changed('map');
+    status(`<b>${esc(what)}</b>: ` + t('изменено клеток {n}, {ms} мс', { n: r.changed, ms }) + (r.notes.length ? ' · ' + r.notes.map(esc).join(' · ') : '') +
+      ' · ' + t('Ctrl+Z - отменить'));
+  }
+  $('bReroll').onclick = () => {
+    if (!lastBrush || lastBrush.lv !== lv || !undo.length) { status(t('Сначала проведите штрих кистью «Дорога», «Река» или «Перерисовать».')); return; }
+    applyBrush(lastBrush.op, true);
+  };
   const genHist = [];          // варианты, сделанные в этом сеансе: [{p, r}] - «◀ ▶» листают их
   let genPos = -1;
   const GF = [   // [id, параметр, подпись, мин, макс, для каких типов]
